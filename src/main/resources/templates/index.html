@@ -164,21 +164,57 @@
             padding: 3rem;
             color: var(--text-secondary);
         }
-        #syncBtn {
+        #syncBtn, #addBtn {
             background: var(--bg-card);
             color: var(--accent);
             border: 1px solid var(--border);
         }
-        #syncBtn:hover {
+        #syncBtn:hover, #addBtn:hover {
             background: var(--border);
         }
+        #addBtn { background: var(--accent); color: var(--bg-primary); }
+        #addBtn:hover { background: var(--accent-hover); color: var(--bg-primary); }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 560px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 { margin: 0 0 1rem 0; font-size: 1.25rem; }
+        .modal .form-row { margin-bottom: 1rem; }
+        .modal .form-row label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--text-secondary); }
+        .modal .form-row input, .modal .form-row select { width: 100%; min-width: 0; }
+        .modal-buttons { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+        .modal-buttons button { width: 100%; justify-content: center; }
+        .modal-buttons button.secondary { background: var(--bg-card); color: var(--text-primary); }
+        .modal-buttons button.secondary:hover { background: var(--border); }
+        .modal-close { float: right; background: none; color: var(--text-secondary); padding: 0.25rem; font-size: 1.5rem; line-height: 1; }
+        .modal-close:hover { color: var(--text-primary); }
+        .modal-status { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
             <h1 style="margin: 0;">Архивы отчётов</h1>
-            <button type="button" onclick="syncReports()" id="syncBtn">Синхронизировать</button>
+            <div style="display: flex; gap: 0.5rem;">
+                <button type="button" onclick="openAddModal()" id="addBtn">Добавить архив</button>
+                <button type="button" onclick="syncReports()" id="syncBtn">Синхронизировать</button>
+            </div>
         </div>
 
         <form method="get" action="/" class="filters">
@@ -248,7 +284,179 @@
             <span th:unless="${hasNext}" class="disabled">Вперёд →</span>
         </div>
     </div>
+
+    <!-- Модальное окно добавления архива -->
+    <div class="modal-overlay" id="addModal">
+        <div class="modal">
+            <button type="button" class="modal-close" onclick="closeAddModal()">&times;</button>
+            <h2>Добавить архив с HTML</h2>
+            <div class="form-row">
+                <label for="modalUrl">URL страницы Confluence</label>
+                <input type="url" id="modalUrl" placeholder="https://confluence.../pages/123456/...">
+            </div>
+            <div class="form-row">
+                <label for="modalProject">Проект</label>
+                <select id="modalProject">
+                    <option value="">Выберите проект</option>
+                    <option th:each="p : ${projects}" th:value="${p}" th:text="${p}"></option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="modalProjectNew">Или введите новый проект</label>
+                <input type="text" id="modalProjectNew" placeholder="Название нового проекта">
+            </div>
+            <div class="form-row">
+                <label for="modalJiraKey">Jira ключ (опционально)</label>
+                <input type="text" id="modalJiraKey" placeholder="PROJ-123">
+            </div>
+            <div class="form-row">
+                <label for="modalDigrep">Digrep URL (опционально, до 100 символов)</label>
+                <input type="text" id="modalDigrep" placeholder="https://...">
+            </div>
+            <div class="modal-status" id="modalStatus"></div>
+            <div class="modal-buttons">
+                <button type="button" onclick="archiveStep1()">1. Экспорт в zip и сохранение на сервере</button>
+                <button type="button" onclick="archiveStep2()" class="secondary">2. Сохранить список дочерних и удалить их в Confluence</button>
+                <button type="button" onclick="archiveStep3()" class="secondary">3. Удалить вложения со страницы</button>
+                <button type="button" onclick="archiveStep4()" class="secondary">4. Заменить контент на текст об архивации</button>
+                <button type="button" onclick="archiveStep5()" class="secondary">5. Сохранить в БД</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let archiveState = {};
+
+        function openAddModal() {
+            document.getElementById('addModal').classList.add('open');
+            archiveState = {};
+            document.getElementById('modalStatus').textContent = '';
+        }
+        function closeAddModal() {
+            document.getElementById('addModal').classList.remove('open');
+        }
+
+        async function apiPost(url, body) {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            return { ok: res.ok, data: await res.json().catch(() => ({})) };
+        }
+
+        function setStatus(msg, isError) {
+            const el = document.getElementById('modalStatus');
+            el.textContent = msg;
+            el.style.color = isError ? '#f85149' : 'var(--text-secondary)';
+        }
+
+        function getModalProject() {
+            const custom = document.getElementById('modalProjectNew').value.trim();
+            return custom || document.getElementById('modalProject').value;
+        }
+
+        async function archiveStep1() {
+            const url = document.getElementById('modalUrl').value.trim();
+            const project = getModalProject();
+            if (!url || !project) {
+                setStatus('Укажите URL и проект', true);
+                return;
+            }
+            setStatus('Экспорт...');
+            const { ok, data } = await apiPost('/api/archive/export', { confluenceUrl: url, project });
+            if (ok) {
+                archiveState = { ...archiveState, ...data, confluenceUrl: url, project };
+                setStatus('Готово. ID: ' + data.archiveId + ', дочерних: ' + (data.childPageNames?.length || 0));
+            } else {
+                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            }
+        }
+
+        async function archiveStep2() {
+            if (!archiveState.confluenceUrl || !archiveState.childPageIds?.length) {
+                setStatus('Сначала выполните шаг 1', true);
+                return;
+            }
+            setStatus('Удаление дочерних страниц...');
+            const { ok, data } = await apiPost('/api/archive/delete-children', {
+                confluenceUrl: archiveState.confluenceUrl,
+                childPageIds: archiveState.childPageIds
+            });
+            if (ok) {
+                setStatus('Дочерние страницы удалены. Список сохранён для json_info.');
+            } else {
+                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            }
+        }
+
+        async function archiveStep3() {
+            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
+            if (!url) {
+                setStatus('Укажите URL страницы', true);
+                return;
+            }
+            setStatus('Удаление вложений...');
+            const { ok, data } = await apiPost('/api/archive/delete-attachments', { confluenceUrl: url });
+            if (ok) {
+                setStatus('Вложения удалены.');
+            } else {
+                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            }
+        }
+
+        async function archiveStep4() {
+            if (!archiveState.archiveId || !archiveState.pageTitle) {
+                setStatus('Сначала выполните шаг 1', true);
+                return;
+            }
+            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
+            if (!url) {
+                setStatus('Укажите URL страницы', true);
+                return;
+            }
+            setStatus('Замена контента...');
+            const { ok, data } = await apiPost('/api/archive/replace-content', {
+                confluenceUrl: url,
+                pageTitle: archiveState.pageTitle,
+                archiveId: archiveState.archiveId,
+                project: archiveState.project,
+                jiraKey: document.getElementById('modalJiraKey').value.trim() || null
+            });
+            if (ok) {
+                setStatus('Контент заменён на текст об архивации.');
+            } else {
+                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            }
+        }
+
+        async function archiveStep5() {
+            if (!archiveState.archiveId || !archiveState.pageTitle) {
+                setStatus('Сначала выполните шаг 1', true);
+                return;
+            }
+            const project = getModalProject() || archiveState.project;
+            if (!project) {
+                setStatus('Укажите проект', true);
+                return;
+            }
+            setStatus('Сохранение в БД...');
+            const { ok, data } = await apiPost('/api/archive/save-to-db', {
+                archiveId: archiveState.archiveId,
+                name: archiveState.pageTitle,
+                project,
+                childPageNames: archiveState.childPageNames || [],
+                jiraKey: document.getElementById('modalJiraKey').value.trim() || null,
+                digrep: document.getElementById('modalDigrep').value.trim() || null
+            });
+            if (ok) {
+                setStatus('Сохранено в БД. ID: ' + data.id);
+                setTimeout(() => { closeAddModal(); location.reload(); }, 1500);
+            } else {
+                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            }
+        }
+
         async function syncReports() {
             const btn = document.getElementById('syncBtn');
             btn.disabled = true;

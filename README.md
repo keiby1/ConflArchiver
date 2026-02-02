@@ -37,6 +37,18 @@ POST /admin/sync
 - Выбор проекта (фильтр)
 - Поиск по подстроке (название, id, Jira ключ)
 - Таблица архивов с ссылками на просмотр
+- Кнопка **Добавить архив** — модальное окно для архивации страниц Confluence
+
+### Добавление архива из Confluence
+
+1. Нажмите «Добавить архив»
+2. Введите URL страницы Confluence и выберите проект
+3. Выполните шаги по порядку:
+   - **1** — экспорт страницы и дочерних в HTML, сохранение в zip на сервере
+   - **2** — сохранение списка дочерних страниц (в json_info) и удаление их в Confluence
+   - **3** — удаление вложений со страницы
+   - **4** — замена контента на текст об архивации
+   - **5** — сохранение в БД
 
 ## База данных PostgreSQL
 
@@ -51,7 +63,19 @@ spring.datasource.url=jdbc:postgresql://localhost:5432/conflarchreport
 spring.datasource.username=postgres
 spring.datasource.password=postgres
 app.reports.path=reports
+app.base-url=https://reports.your-domain.com
 ```
+
+### Confluence / Jira API (application-secret.properties)
+
+Для архивации страниц Confluence нужен API-токен:
+
+```properties
+confluence.email=your-email@company.com
+confluence.api-token=your-atlassian-api-token
+```
+
+Токен создаётся в [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens).
 
 Таблицы создаются автоматически (Hibernate ddl-auto=update).
 
