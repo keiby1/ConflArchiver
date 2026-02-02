@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Архивы отчётов</title>
+    <style>
+        :root {
+            --bg-primary: #0f1419;
+            --bg-secondary: #1a2332;
+            --bg-card: #242f3d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --accent-hover: #79b8ff;
+            --border: #30363d;
+            --success: #3fb950;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+        .filters {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        .filter-group label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        select, input[type="text"] {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            min-width: 200px;
+        }
+        select:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        button {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            align-self: flex-end;
+        }
+        button:hover {
+            background: var(--accent-hover);
+        }
+        .reports-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .reports-table th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .reports-table td {
+            padding: 0.75rem 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .reports-table tr:hover {
+            background: var(--bg-card);
+        }
+        .report-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .report-link:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+        .report-link::after {
+            content: " ↗";
+            font-size: 0.8em;
+        }
+        .jira-key {
+            font-family: monospace;
+            font-size: 0.85em;
+            color: var(--text-secondary);
+        }
+        .pagination {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+        .pagination a, .pagination span {
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            text-decoration: none;
+            color: var(--accent);
+            border: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+        .pagination a:hover {
+            background: var(--bg-card);
+        }
+        .pagination .current {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
+        }
+        .pagination .disabled {
+            color: var(--text-secondary);
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .info-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+        #syncBtn {
+            background: var(--bg-card);
+            color: var(--accent);
+            border: 1px solid var(--border);
+        }
+        #syncBtn:hover {
+            background: var(--border);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h1 style="margin: 0;">Архивы отчётов</h1>
+            <button type="button" onclick="syncReports()" id="syncBtn">Синхронизировать</button>
+        </div>
+
+        <form method="get" action="/" class="filters">
+            <div class="filter-group">
+                <label for="project">Проект</label>
+                <select name="project" id="project" onchange="this.form.submit()">
+                    <option value="">Все проекты</option>
+                    <option th:each="p : ${projects}"
+                            th:value="${p}"
+                            th:text="${p}"
+                            th:selected="${p == selectedProject}"></option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="search">Поиск</label>
+                <input type="text" name="search" id="search"
+                       th:value="${searchTerm}"
+                       placeholder="Подстрока в названии, id или Jira ключе">
+            </div>
+            <div class="filter-group">
+                <label>&nbsp;</label>
+                <button type="submit">Найти</button>
+            </div>
+        </form>
+
+        <table class="reports-table" th:if="${!reports.isEmpty()}">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>ID</th>
+                    <th>Проект</th>
+                    <th>Jira</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="report : ${reports}">
+                    <td th:text="${report.name}">Название</td>
+                    <td th:text="${report.id}" class="jira-key">id</td>
+                    <td th:text="${report.project.name}">Проект</td>
+                    <td th:text="${report.jiraKey}" class="jira-key">-</td>
+                    <td>
+                        <a th:href="@{/{project}/{id}(project=${report.project.name}, id=${report.id})}"
+                           th:attr="target='_blank'"
+                           class="report-link">Открыть</a>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="empty-state" th:if="${reports.isEmpty()}">
+            <p>Отчёты не найдены. Проверьте фильтры или добавьте данные в БД.</p>
+        </div>
+
+        <div class="pagination" th:if="${totalPages > 1}">
+            <a th:if="${hasPrevious}"
+               th:href="@{/(project=${selectedProject}, search=${searchTerm}, page=${currentPage - 1}, size=${pageSize})}">← Назад</a>
+            <span th:unless="${hasPrevious}" class="disabled">← Назад</span>
+
+            <span class="info-text">
+                Страница <span th:text="${currentPage + 1}">1</span> из <span th:text="${totalPages}">1</span>
+                (<span th:text="${totalItems}">0</span> записей)
+            </span>
+
+            <a th:if="${hasNext}"
+               th:href="@{/(project=${selectedProject}, search=${searchTerm}, page=${currentPage + 1}, size=${pageSize})}">Вперёд →</a>
+            <span th:unless="${hasNext}" class="disabled">Вперёд →</span>
+        </div>
+    </div>
+    <script>
+        async function syncReports() {
+            const btn = document.getElementById('syncBtn');
+            btn.disabled = true;
+            btn.textContent = 'Синхронизация...';
+            try {
+                const res = await fetch('/admin/sync', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    let msg = 'Добавлено: ' + data.added + ', всего: ' + data.total;
+                    if (data.errors && data.errors.length > 0) {
+                        msg += '\nОшибки: ' + data.errors.join(', ');
+                    }
+                    alert(msg);
+                    location.reload();
+                } else {
+                    alert('Ошибка: ' + (data.error || res.status));
+                }
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Синхронизировать';
+            }
+        }
+    </script>
+</body>
+</html>
