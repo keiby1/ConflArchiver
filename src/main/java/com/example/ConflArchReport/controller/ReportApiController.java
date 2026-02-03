@@ -7,14 +7,24 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * API для отображения HTML страниц из архивов.
- * Эндпоинт: /{project}/{id}
+ * API для отображения HTML и статики из архивов.
+ * - GET /{project}/{id} → редирект на /{project}/{id}/
+ * - GET /{project}/{id}/ или /{project}/{id}/index.html → index.html
+ * - GET /{project}/{id}/{path} → файл из архива (CSS, JS, другие HTML и т.д.)
  */
 @RestController
 public class ReportApiController {
+
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            "html", "htm", "css", "js", "json", "xml", "txt",
+            "png", "jpg", "jpeg", "gif", "svg", "ico", "webp",
+            "woff", "woff2", "ttf", "eot", "otf"
+    );
 
     private final ArchivedReportService archivedReportService;
 
@@ -22,18 +32,96 @@ public class ReportApiController {
         this.archivedReportService = archivedReportService;
     }
 
+    /**
+     * Без завершающего слеша — редирект, чтобы относительные ссылки в HTML разрешались от /{project}/{id}/
+     */
     @GetMapping("/{project}/{id}")
-    public ResponseEntity<String> getReportPage(@PathVariable String project, @PathVariable String id) {
-        Optional<String> htmlContent = archivedReportService.getHtmlContent(project, id);
+    public ResponseEntity<Void> redirectToSlash(@PathVariable String project, @PathVariable String id) {
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create("/" + project + "/" + id + "/"))
+                .build();
+    }
 
-        if (htmlContent.isEmpty()) {
+    /**
+     * Со слешем: index или конкретный путь. path приходит без ведущего слеша (пустая строка для /{project}/{id}/).
+     */
+    @GetMapping("/{project}/{id}/{*path}")
+    public ResponseEntity<?> getReportResource(
+            @PathVariable String project,
+            @PathVariable String id,
+            @PathVariable(required = false) String path) {
+
+        String normalizedPath = path != null ? path.replace('\\', '/').trim() : "";
+        if (normalizedPath.startsWith("/")) {
+            normalizedPath = normalizedPath.substring(1);
+        }
+
+        boolean serveIndex = normalizedPath.isEmpty() || "index.html".equalsIgnoreCase(normalizedPath);
+
+        if (serveIndex) {
+            Optional<String> htmlContent = archivedReportService.getHtmlContent(project, id);
+            if (htmlContent.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.TEXT_HTML);
+            headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
+            return new ResponseEntity<>(htmlContent.get(), headers, HttpStatus.OK);
+        }
+
+        if (!isAllowedPath(normalizedPath)) {
             return ResponseEntity.notFound().build();
         }
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.TEXT_HTML);
-        headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
+        Optional<byte[]> fileContent = archivedReportService.getFileContent(project, id, normalizedPath);
+        if (fileContent.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
 
-        return new ResponseEntity<>(htmlContent.get(), headers, HttpStatus.OK);
+        MediaType mediaType = getMediaType(normalizedPath);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(mediaType);
+        headers.set(HttpHeaders.CACHE_CONTROL, "private, max-age=3600");
+
+        return new ResponseEntity<>(fileContent.get(), headers, HttpStatus.OK);
+    }
+
+    private static boolean isAllowedPath(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        String filename = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+        int dot = filename.lastIndexOf('.');
+        if (dot < 0) {
+            return false;
+        }
+        String ext = filename.substring(dot + 1).toLowerCase();
+        return ALLOWED_EXTENSIONS.contains(ext);
+    }
+
+    private static MediaType getMediaType(String path) {
+        int dot = path.lastIndexOf('.');
+        if (dot < 0) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        String ext = path.substring(dot + 1).toLowerCase();
+        return switch (ext) {
+            case "html", "htm" -> MediaType.TEXT_HTML;
+            case "css" -> MediaType.valueOf("text/css");
+            case "js" -> MediaType.valueOf("application/javascript");
+            case "json" -> MediaType.APPLICATION_JSON;
+            case "xml" -> MediaType.APPLICATION_XML;
+            case "txt" -> MediaType.TEXT_PLAIN;
+            case "png" -> MediaType.IMAGE_PNG;
+            case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
+            case "gif" -> MediaType.IMAGE_GIF;
+            case "svg" -> MediaType.valueOf("image/svg+xml");
+            case "ico" -> MediaType.valueOf("image/x-icon");
+            case "webp" -> MediaType.valueOf("image/webp");
+            case "woff" -> MediaType.valueOf("font/woff");
+            case "woff2" -> MediaType.valueOf("font/woff2");
+            case "ttf" -> MediaType.valueOf("font/ttf");
+            case "eot" -> MediaType.valueOf("application/vnd.ms-fontobject");
+            case "otf" -> MediaType.valueOf("font/otf");
+            default -> MediaType.APPLICATION_OCTET_STREAM;
+        };
     }
 }

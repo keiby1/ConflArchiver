@@ -67,6 +67,17 @@ public class ArchivedReportService {
         }
     }
 
+    /**
+     * Возвращает содержимое файла из архива (CSS, JS, другой HTML и т.д.).
+     */
+    public Optional<byte[]> getFileContent(String project, String id, String path) {
+        try {
+            return zipReportService.getFileContent(project, id, path);
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
     public boolean reportExists(String project, String id) {
         return zipReportService.archiveExists(project, id);
     }

@@ -257,7 +257,7 @@
                     <td th:text="${report.project.name}">Проект</td>
                     <td th:text="${report.jiraKey}" class="jira-key">-</td>
                     <td>
-                        <a th:href="@{/{project}/{id}(project=${report.project.name}, id=${report.id})}"
+                        <a th:href="@{/{project}/{id}/(project=${report.project.name}, id=${report.id})}"
                            th:attr="target='_blank'"
                            class="report-link">Открыть</a>
                     </td>
