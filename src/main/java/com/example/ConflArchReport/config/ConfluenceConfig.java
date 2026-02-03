@@ -16,18 +16,14 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.net.ssl.SSLContext;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
-import java.util.Base64;
 
 @Configuration
 public class ConfluenceConfig {
 
-    @Value("${confluence.email:}")
-    private String confluenceEmail;
-
+    /** Bearer-токен для авторизации в Confluence API */
     @Value("${confluence.api-token:}")
     private String confluenceApiToken;
 
@@ -63,11 +59,8 @@ public class ConfluenceConfig {
         }
 
         restTemplate.getInterceptors().add((request, body, execution) -> {
-            if (confluenceApiToken != null && !confluenceApiToken.isBlank()
-                    && confluenceEmail != null && !confluenceEmail.isBlank()) {
-                String auth = confluenceEmail + ":" + confluenceApiToken;
-                String encoded = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
-                request.getHeaders().set(HttpHeaders.AUTHORIZATION, "Basic " + encoded);
+            if (confluenceApiToken != null && !confluenceApiToken.isBlank()) {
+                request.getHeaders().set(HttpHeaders.AUTHORIZATION, "Bearer " + confluenceApiToken);
             }
             request.getHeaders().set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
             return execution.execute(request, body);

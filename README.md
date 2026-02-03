@@ -66,16 +66,13 @@ app.reports.path=reports
 app.base-url=https://reports.your-domain.com
 ```
 
-### Confluence / Jira API (application-secret.properties)
+### Confluence API (application-secret.properties)
 
-Для архивации страниц Confluence нужен API-токен:
+Для архивации страниц Confluence используется авторизация Bearer-токеном:
 
 ```properties
-confluence.email=your-email@company.com
-confluence.api-token=your-atlassian-api-token
+confluence.api-token=your-bearer-token
 ```
-
-Токен создаётся в [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens).
 
 Таблицы создаются автоматически (Hibernate ddl-auto=update).
 

@@ -379,7 +379,7 @@ public class ConfluenceArchiveService {
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             String hint = "";
             if (e.getStatusCode().value() == 401) {
-                hint = " Проверьте confluence.email и confluence.api-token в application-secret.properties.";
+                hint = " Проверьте confluence.api-token (Bearer) в application-secret.properties.";
             } else if (e.getStatusCode().value() == 404) {
                 hint = " Если Confluence установлен не в корне, укажите confluence.context-path в application.properties (например /confluence).";
             }
