@@ -48,6 +48,10 @@ public class ConfluenceArchiveService {
     @Value("${app.base-url:}")
     private String appBaseUrl;
 
+    /** Контекстный путь Confluence, если не в корне (например /confluence). Пустой — REST в корне. */
+    @Value("${confluence.context-path:}")
+    private String confluenceContextPath;
+
     public ConfluenceArchiveService(@Qualifier("confluenceRestTemplate") RestTemplate restTemplate,
                                     ArchivedReportService archivedReportService) {
         this.restTemplate = restTemplate;
@@ -62,8 +66,11 @@ public class ConfluenceArchiveService {
         archivedReportService.getOrCreateProject(projectName);
 
         String pageId = parsed.pageId();
-        String apiBase = parsed.getApiBaseUrl();
-        String webBase = parsed.baseUrl().endsWith("/") ? parsed.baseUrl() : parsed.baseUrl() + "/";
+        String baseUrl = parsed.baseUrl().endsWith("/") ? parsed.baseUrl().substring(0, parsed.baseUrl().length() - 1) : parsed.baseUrl();
+        String contextPath = (confluenceContextPath != null ? confluenceContextPath.trim() : "").replaceAll("^/+|/+$", "");
+        String effectiveBase = contextPath.isEmpty() ? baseUrl : (baseUrl + "/" + contextPath);
+        String apiBase = effectiveBase + "/rest/api/content/";
+        String webBase = effectiveBase + "/";
 
         // Карта: ключ "pageId/filename" -> путь в zip (attachments/attachmentId_safeName)
         Map<String, String> attachmentUrlToZipPath = new HashMap<>();
@@ -358,11 +365,26 @@ public class ConfluenceArchiveService {
     private ConfluenceApiResponse fetchPageOrThrow(String apiBase, String pageId, String label) {
         String url = apiBase + pageId + "?expand=" + EXPAND;
         try {
-            ConfluenceApiResponse page = restTemplate.getForObject(url, ConfluenceApiResponse.class);
+            ResponseEntity<ConfluenceApiResponse> response = restTemplate.exchange(
+                    url,
+                    org.springframework.http.HttpMethod.GET,
+                    null,
+                    ConfluenceApiResponse.class
+            );
+            ConfluenceApiResponse page = response.getBody();
             if (page == null) {
                 throw new IllegalStateException(label + ": пустой ответ от " + url);
             }
             return page;
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            String hint = "";
+            if (e.getStatusCode().value() == 401) {
+                hint = " Проверьте confluence.email и confluence.api-token в application-secret.properties.";
+            } else if (e.getStatusCode().value() == 404) {
+                hint = " Если Confluence установлен не в корне, укажите confluence.context-path в application.properties (например /confluence).";
+            }
+            throw new IllegalStateException(label + " (id=" + pageId + "): HTTP " + e.getStatusCode().value()
+                    + " — " + url + hint, e);
         } catch (Exception e) {
             throw new IllegalStateException(label + " (id=" + pageId + ") не найдена или недоступна: " + url + " — " + e.getMessage(), e);
         }
