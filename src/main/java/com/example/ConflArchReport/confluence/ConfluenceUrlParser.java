@@ -55,13 +55,17 @@ public class ConfluenceUrlParser {
             int port = uri.getPort();
             String path = uri.getPath() != null ? uri.getPath() : "";
 
-            // Confluence Cloud: .../wiki/spaces/... или .../wiki/rest/...
-            // Confluence Server: .../display/... или .../pages/...
+            // Confluence Cloud: REST API под /wiki/rest/api/content/
             if (path.contains("/wiki/")) {
                 path = path.substring(0, path.indexOf("/wiki/") + 5); // включая /wiki
-            } else if (path.contains("/display/") || path.contains("/pages/")) {
-                int slash = path.indexOf("/", 1);
-                path = slash > 0 ? path.substring(0, slash) : "";
+            }
+            // Confluence Server с context path: REST под /confluence/rest/api/content/
+            else if (path.contains("/confluence/")) {
+                path = path.substring(0, path.indexOf("/confluence/") + 11); // включая /confluence
+            }
+            // Confluence Server без context: /display/... или /pages/... — REST в корне: /rest/api/content/
+            else if (path.contains("/display/") || path.contains("/pages/")) {
+                path = "";
             } else {
                 path = "";
             }

@@ -4,30 +4,40 @@ import com.example.ConflArchReport.confluence.ConfluenceApiResponse;
 import com.example.ConflArchReport.confluence.ConfluenceUrlParser;
 import com.example.ConflArchReport.entity.ArchivedReport;
 import com.example.ConflArchReport.entity.Project;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+/**
+ * Экспорт контента Confluence в zip через REST API.
+ * HTML страниц + вложения (картинки, файлы) выгружаются и сохраняются в zip;
+ * ссылки на вложения в HTML заменяются на относительные пути к файлам в архиве.
+ */
 @Service
 public class ConfluenceArchiveService {
 
+    private static final Logger log = LoggerFactory.getLogger(ConfluenceArchiveService.class);
     private static final String EXPAND = "body.export_view,body.storage,body.view,children.page";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String ATTACHMENTS_DIR = "attachments";
 
     private final RestTemplate restTemplate;
     private final ArchivedReportService archivedReportService;
@@ -49,41 +59,45 @@ public class ConfluenceArchiveService {
      */
     public ExportResult exportToZip(String confluenceUrl, String projectName) throws IOException {
         ConfluenceUrlParser.ParsedUrl parsed = ConfluenceUrlParser.parse(confluenceUrl);
-        Project project = archivedReportService.getOrCreateProject(projectName);
+        archivedReportService.getOrCreateProject(projectName);
 
         String pageId = parsed.pageId();
         String apiBase = parsed.getApiBaseUrl();
+        String webBase = parsed.baseUrl().endsWith("/") ? parsed.baseUrl() : parsed.baseUrl() + "/";
+
+        // Карта: ключ "pageId/filename" -> путь в zip (attachments/attachmentId_safeName)
+        Map<String, String> attachmentUrlToZipPath = new HashMap<>();
 
         // Получаем главную страницу
-        ConfluenceApiResponse mainPage = fetchPage(apiBase, pageId);
-        if (mainPage == null) {
-            throw new IllegalStateException("Страница не найдена: " + pageId);
-        }
-
+        ConfluenceApiResponse mainPage = fetchPageOrThrow(apiBase, pageId, "корневая страница");
         String pageTitle = mainPage.getTitle();
         String mainHtml = extractHtmlFromPage(mainPage);
 
-        // Собираем все страницы: главная + дочерние
         List<PageContent> pages = new ArrayList<>();
-        pages.add(new PageContent("index.html", pageTitle, mainHtml));
+        List<AttachmentEntry> attachmentEntries = new ArrayList<>();
+
+        // Вложения корневой страницы
+        collectAttachments(apiBase, webBase, pageId, attachmentUrlToZipPath, attachmentEntries);
+
+        pages.add(new PageContent("index.html", pageTitle, rewriteAttachmentUrlsInHtml(mainHtml, pageId, attachmentUrlToZipPath)));
 
         List<ChildInfo> childInfos = new ArrayList<>();
         List<ConfluenceApiResponse.ChildRef> childRefs = getChildPages(mainPage);
 
         for (ConfluenceApiResponse.ChildRef child : childRefs) {
-            ConfluenceApiResponse childPage = fetchPage(apiBase, child.getId());
-            if (childPage != null) {
+            try {
+                ConfluenceApiResponse childPage = fetchPageOrThrow(apiBase, child.getId(), "дочерняя: " + child.getTitle());
                 String childHtml = extractHtmlFromPage(childPage);
+                collectAttachments(apiBase, webBase, child.getId(), attachmentUrlToZipPath, attachmentEntries);
                 String safeName = sanitizeFilename(child.getTitle()) + ".html";
-                pages.add(new PageContent(safeName, child.getTitle(), childHtml));
+                pages.add(new PageContent(safeName, child.getTitle(), rewriteAttachmentUrlsInHtml(childHtml, child.getId(), attachmentUrlToZipPath)));
                 childInfos.add(new ChildInfo(child.getId(), child.getTitle()));
+            } catch (Exception e) {
+                log.warn("Пропуск дочерней страницы id={} title={}: {}", child.getId(), child.getTitle(), e.getMessage());
             }
         }
 
-        // Генерируем ID архива
         String archiveId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-
-        // Создаём zip и сохраняем
         Path projectDir = Path.of(reportsBasePath, projectName);
         Files.createDirectories(projectDir);
         Path zipPath = projectDir.resolve(archiveId + ".zip");
@@ -95,6 +109,13 @@ public class ConfluenceArchiveService {
                 zos.write(pc.content().getBytes(StandardCharsets.UTF_8));
                 zos.closeEntry();
             }
+            for (AttachmentEntry att : attachmentEntries) {
+                if (att.data() == null || att.data().length == 0) continue;
+                ZipEntry entry = new ZipEntry(att.zipPath());
+                zos.putNextEntry(entry);
+                zos.write(att.data());
+                zos.closeEntry();
+            }
         }
 
         return new ExportResult(
@@ -104,6 +125,103 @@ public class ConfluenceArchiveService {
                 childInfos,
                 zipPath.toString()
         );
+    }
+
+    /**
+     * Собирает список вложений страницы, скачивает их и добавляет в карту для подмены URL в HTML.
+     */
+    @SuppressWarnings("unchecked")
+    private void collectAttachments(String apiBase, String webBase, String pageId,
+                                   Map<String, String> attachmentUrlToZipPath,
+                                   List<AttachmentEntry> attachmentEntries) {
+        String url = apiBase + pageId + "?expand=children.attachment";
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    url,
+                    org.springframework.http.HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<Map<String, Object>>() {}
+            );
+            Map<String, Object> body = response.getBody();
+            if (body == null) return;
+            Object childrenObj = body.get("children");
+            if (childrenObj == null) return;
+            Map<String, Object> children = (Map<String, Object>) childrenObj;
+            Object attachmentObj = children.get("attachment");
+            if (attachmentObj == null) return;
+            Map<String, Object> attachmentData = (Map<String, Object>) attachmentObj;
+            List<Map<String, Object>> results = (List<Map<String, Object>>) attachmentData.get("results");
+            if (results == null) return;
+
+            for (Map<String, Object> att : results) {
+                String attId = (String) att.get("id");
+                String title = (String) att.get("title");
+                if (attId == null || title == null || title.isBlank()) continue;
+                String safeFileName = sanitizeFilename(title);
+                String zipPath = ATTACHMENTS_DIR + "/" + attId + "_" + safeFileName;
+                attachmentUrlToZipPath.put(pageId + "/" + title, zipPath);
+                attachmentUrlToZipPath.put(pageId + "/" + safeFileName, zipPath);
+
+                Object linksObj = att.get("_links");
+                String downloadPath = null;
+                if (linksObj instanceof Map<?, ?> links) {
+                    Object download = links.get("download");
+                    if (download != null) downloadPath = download.toString();
+                }
+                if (downloadPath == null || downloadPath.isBlank()) {
+                    downloadPath = "/download/attachments/" + pageId + "/" + title;
+                }
+                byte[] data = downloadAttachment(webBase, downloadPath);
+                attachmentEntries.add(new AttachmentEntry(zipPath, data));
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось загрузить вложения страницы {}: {}", pageId, e.getMessage());
+        }
+    }
+
+    private byte[] downloadAttachment(String webBase, String downloadPath) {
+        try {
+            String fullUrl = downloadPath.startsWith("http") ? downloadPath : webBase + (downloadPath.startsWith("/") ? downloadPath.substring(1) : downloadPath);
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    URI.create(fullUrl),
+                    org.springframework.http.HttpMethod.GET,
+                    null,
+                    byte[].class
+            );
+            return response.getBody() != null ? response.getBody() : new byte[0];
+        } catch (Exception e) {
+            log.warn("Ошибка скачивания вложения {}: {}", downloadPath, e.getMessage());
+            return new byte[0];
+        }
+    }
+
+    /** Подмена в HTML ссылок вида /download/attachments/{pageId}/{filename} на относительный путь в архиве. */
+    private static final Pattern DOWNLOAD_LINK = Pattern.compile(
+            "(?i)(href|src)=[\"']([^\"']*?/download/attachments/)(\\d+)/([^\"'?]+)([^\"']*)[\"']");
+
+    private String rewriteAttachmentUrlsInHtml(String html, String pageId, Map<String, String> attachmentUrlToZipPath) {
+        Matcher m = DOWNLOAD_LINK.matcher(html);
+        StringBuffer sb = new StringBuffer(html.length());
+        while (m.find()) {
+            String attr = m.group(1);
+            String pid = m.group(3);
+            String filename = m.group(4);
+            String key = pid + "/" + filename;
+            String keyDecoded;
+            try {
+                keyDecoded = pid + "/" + java.net.URLDecoder.decode(filename.replace('+', ' '), StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+                keyDecoded = key;
+            }
+            String zipPath = attachmentUrlToZipPath.get(key);
+            if (zipPath == null) zipPath = attachmentUrlToZipPath.get(keyDecoded);
+            if (zipPath == null) zipPath = attachmentUrlToZipPath.get(pid + "/" + sanitizeFilename(filename));
+            if (zipPath != null) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(attr + "=\"" + zipPath + "\""));
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     /**
@@ -234,12 +352,19 @@ public class ConfluenceArchiveService {
         return (Integer) version.get("number");
     }
 
-    private ConfluenceApiResponse fetchPage(String apiBase, String pageId) {
+    /**
+     * Загружает страницу по REST API. При ошибке (404, 401, сеть) бросает исключение с URL и причиной.
+     */
+    private ConfluenceApiResponse fetchPageOrThrow(String apiBase, String pageId, String label) {
         String url = apiBase + pageId + "?expand=" + EXPAND;
         try {
-            return restTemplate.getForObject(url, ConfluenceApiResponse.class);
+            ConfluenceApiResponse page = restTemplate.getForObject(url, ConfluenceApiResponse.class);
+            if (page == null) {
+                throw new IllegalStateException(label + ": пустой ответ от " + url);
+            }
+            return page;
         } catch (Exception e) {
-            return null;
+            throw new IllegalStateException(label + " (id=" + pageId + ") не найдена или недоступна: " + url + " — " + e.getMessage(), e);
         }
     }
 
@@ -294,4 +419,5 @@ public class ConfluenceArchiveService {
 
     public record ChildInfo(String id, String title) {}
     private record PageContent(String filename, String title, String content) {}
+    private record AttachmentEntry(String zipPath, byte[] data) {}
 }

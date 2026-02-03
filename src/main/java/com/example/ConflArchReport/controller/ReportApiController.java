@@ -24,7 +24,9 @@ public class ReportApiController {
             "html", "htm", "css", "js", "json", "xml", "txt",
             "log", "yml", "yaml",
             "png", "jpg", "jpeg", "gif", "svg", "ico", "webp",
-            "woff", "woff2", "ttf", "eot", "otf"
+            "woff", "woff2", "ttf", "eot", "otf",
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv",
+            "zip", "rar", "7z"
     );
 
     private final ArchivedReportService archivedReportService;
@@ -88,6 +90,9 @@ public class ReportApiController {
     }
 
     private static boolean isAllowedPath(String path) {
+        if (path.startsWith("attachments/")) {
+            return true;
+        }
         int lastSlash = path.lastIndexOf('/');
         String filename = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
         int dot = filename.lastIndexOf('.');
@@ -123,6 +128,17 @@ public class ReportApiController {
             case "ttf" -> MediaType.valueOf("font/ttf");
             case "eot" -> MediaType.valueOf("application/vnd.ms-fontobject");
             case "otf" -> MediaType.valueOf("font/otf");
+            case "pdf" -> MediaType.APPLICATION_PDF;
+            case "doc" -> MediaType.valueOf("application/msword");
+            case "docx" -> MediaType.valueOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+            case "xls" -> MediaType.valueOf("application/vnd.ms-excel");
+            case "xlsx" -> MediaType.valueOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            case "ppt" -> MediaType.valueOf("application/vnd.ms-powerpoint");
+            case "pptx" -> MediaType.valueOf("application/vnd.openxmlformats-officedocument.presentationml.presentation");
+            case "csv" -> MediaType.valueOf("text/csv");
+            case "zip" -> MediaType.valueOf("application/zip");
+            case "rar" -> MediaType.valueOf("application/vnd.rar");
+            case "7z" -> MediaType.valueOf("application/x-7z-compressed");
             default -> MediaType.APPLICATION_OCTET_STREAM;
         };
     }
