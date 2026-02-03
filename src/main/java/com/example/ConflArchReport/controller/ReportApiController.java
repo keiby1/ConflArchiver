@@ -22,6 +22,7 @@ public class ReportApiController {
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
             "html", "htm", "css", "js", "json", "xml", "txt",
+            "log", "yml", "yaml",
             "png", "jpg", "jpeg", "gif", "svg", "ico", "webp",
             "woff", "woff2", "ttf", "eot", "otf"
     );
@@ -109,7 +110,8 @@ public class ReportApiController {
             case "js" -> MediaType.valueOf("application/javascript");
             case "json" -> MediaType.APPLICATION_JSON;
             case "xml" -> MediaType.APPLICATION_XML;
-            case "txt" -> MediaType.TEXT_PLAIN;
+            case "txt", "log" -> MediaType.TEXT_PLAIN;
+            case "yml", "yaml" -> MediaType.valueOf("text/yaml");
             case "png" -> MediaType.IMAGE_PNG;
             case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
             case "gif" -> MediaType.IMAGE_GIF;

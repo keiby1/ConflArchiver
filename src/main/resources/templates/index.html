@@ -16,6 +16,17 @@
             --border: #30363d;
             --success: #3fb950;
         }
+        html.theme-light {
+            --bg-primary: #f6f8fa;
+            --bg-secondary: #ffffff;
+            --bg-card: #eaeef2;
+            --text-primary: #1f2328;
+            --text-secondary: #656d76;
+            --accent: #0969da;
+            --accent-hover: #0550ae;
+            --border: #d0d7de;
+            --success: #1a7f37;
+        }
         * {
             box-sizing: border-box;
         }
@@ -205,13 +216,85 @@
         .modal-close { float: right; background: none; color: var(--text-secondary); padding: 0.25rem; font-size: 1.5rem; line-height: 1; }
         .modal-close:hover { color: var(--text-primary); }
         .modal-status { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; }
+        .theme-switch-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .theme-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: var(--border);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .theme-switch:hover { background: var(--text-secondary); }
+        .theme-switch::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            transition: transform 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        html.theme-light .theme-switch::after {
+            transform: translateX(20px);
+        }
+        .json-info-icon {
+            cursor: help;
+            font-size: 1.1rem;
+            opacity: 0.8;
+            user-select: none;
+        }
+        .json-info-icon:hover { opacity: 1; }
+        .jira-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+        .jira-link:hover { text-decoration: underline; }
+        #tooltip-json {
+            position: fixed;
+            max-width: 90vw;
+            max-height: 70vh;
+            overflow: auto;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            z-index: 9999;
+            pointer-events: none;
+            display: none;
+        }
+        html.theme-light #tooltip-json { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
     </style>
 </head>
 <body>
+    <div id="tooltip-json" role="tooltip"></div>
     <div class="container">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
             <h1 style="margin: 0;">Архивы отчётов</h1>
-            <div style="display: flex; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div class="theme-switch-wrap">
+                    <span class="theme-label-dark">Тёмная</span>
+                    <button type="button" class="theme-switch" id="themeSwitch" onclick="toggleTheme()" title="Переключить тему" aria-label="Переключить тему"></button>
+                    <span class="theme-label-light">Светлая</span>
+                </div>
                 <button type="button" onclick="openAddModal()" id="addBtn">Добавить архив</button>
                 <button type="button" onclick="syncReports()" id="syncBtn">Синхронизировать</button>
             </div>
@@ -246,6 +329,7 @@
                     <th>Название</th>
                     <th>ID</th>
                     <th>Проект</th>
+                    <th></th>
                     <th>Jira</th>
                     <th></th>
                 </tr>
@@ -255,7 +339,26 @@
                     <td th:text="${report.name}">Название</td>
                     <td th:text="${report.id}" class="jira-key">id</td>
                     <td th:text="${report.project.name}">Проект</td>
-                    <td th:text="${report.jiraKey}" class="jira-key">-</td>
+                    <td style="text-align: center;">
+                        <span th:if="${reportJsonInfo != null && reportJsonInfo[report.pk] != null}"
+                              class="json-info-icon"
+                              th:attr="data-json=${reportJsonInfo[report.pk]}"
+                              title="JSON info"
+                              onmouseenter="showJsonTooltip(event)"
+                              onmousemove="moveJsonTooltip(event)"
+                              onmouseleave="hideJsonTooltip()">ℹ️</span>
+                        <span th:unless="${reportJsonInfo != null && reportJsonInfo[report.pk] != null}">—</span>
+                    </td>
+                    <td class="jira-key">
+                        <a th:if="${jiraBaseUrl != null && !jiraBaseUrl.isEmpty() && report.jiraKey != null && !report.jiraKey.isEmpty()}"
+                           th:href="${jiraBaseUrl + report.jiraKey}"
+                           th:text="${report.jiraKey}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="jira-link">-</a>
+                        <span th:unless="${jiraBaseUrl != null && !jiraBaseUrl.isEmpty() && report.jiraKey != null && !report.jiraKey.isEmpty()}"
+                              th:text="${report.jiraKey != null ? report.jiraKey : '-'}">-</span>
+                    </td>
                     <td>
                         <a th:href="@{/{project}/{id}/(project=${report.project.name}, id=${report.id})}"
                            th:attr="target='_blank'"
@@ -326,6 +429,47 @@
 
     <script>
         let archiveState = {};
+        const THEME_KEY = 'conflarch-theme';
+
+        function getTheme() {
+            return localStorage.getItem(THEME_KEY) || 'dark';
+        }
+        function setTheme(theme) {
+            localStorage.setItem(THEME_KEY, theme);
+            document.documentElement.classList.toggle('theme-light', theme === 'light');
+        }
+        function toggleTheme() {
+            const next = getTheme() === 'dark' ? 'light' : 'dark';
+            setTheme(next);
+        }
+        setTheme(getTheme());
+
+        function showJsonTooltip(e) {
+            const el = e.currentTarget;
+            const json = el.getAttribute('data-json');
+            if (!json) return;
+            const tip = document.getElementById('tooltip-json');
+            tip.textContent = json;
+            tip.style.display = 'block';
+            moveJsonTooltip(e);
+        }
+        function moveJsonTooltip(e) {
+            const tip = document.getElementById('tooltip-json');
+            if (tip.style.display !== 'block') return;
+            const gap = 12;
+            let x = e.clientX + gap, y = e.clientY + gap;
+            const maxX = window.innerWidth - tip.offsetWidth - 10;
+            const maxY = window.innerHeight - tip.offsetHeight - 10;
+            if (x > maxX) x = e.clientX - tip.offsetWidth - gap;
+            if (y > maxY) y = maxY;
+            if (x < 10) x = 10;
+            if (y < 10) y = 10;
+            tip.style.left = x + 'px';
+            tip.style.top = y + 'px';
+        }
+        function hideJsonTooltip() {
+            document.getElementById('tooltip-json').style.display = 'none';
+        }
 
         function openAddModal() {
             document.getElementById('addModal').classList.add('open');
