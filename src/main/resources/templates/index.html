@@ -25,7 +25,7 @@
             --accent: #0969da;
             --accent-hover: #0550ae;
             --border: #d0d7de;
-            --success: #1a7f37;
+            --success: #59f786;
         }
         * {
             box-sizing: border-box;
@@ -308,6 +308,64 @@
             font-size: 0.85rem;
             color: var(--success);
         }
+        .modal-warning {
+            background: rgba(210, 170, 0, 0.18);
+            border: 1px solid #d4a700;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin: 1rem 0 0.75rem 0;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+        html.theme-light .modal-warning {
+            background: rgba(255, 193, 7, 0.2);
+            border-color: #ffc107;
+        }
+        .confirm-slider-wrap {
+            margin: 0.75rem 0 1rem 0;
+        }
+        .confirm-slider-wrap label {
+            display: block;
+            margin-bottom: 0.35rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .confirm-slider {
+            position: relative;
+            height: 36px;
+            background: var(--border);
+            border-radius: 18px;
+            cursor: pointer;
+            user-select: none;
+            touch-action: none;
+        }
+        .confirm-slider.confirmed {
+            background: var(--success);
+        }
+        .confirm-slider .thumb {
+            position: absolute;
+            left: 4px;
+            top: 4px;
+            width: 28px;
+            height: 28px;
+            background: #9ca3af;
+            border-radius: 50%;
+            cursor: grab;
+            transition: background 0.2s, left 0.15s ease-out;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .confirm-slider .thumb:active {
+            cursor: grabbing;
+        }
+        .confirm-slider.confirmed .thumb {
+            background: #fff;
+            left: calc(100% - 32px);
+        }
+        .modal-buttons button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -439,7 +497,7 @@
                 <input type="text" id="modalJiraKey" placeholder="PROJ-123">
             </div>
             <div class="form-row">
-                <label for="modalDigrep">Digrep URL (опционально, до 100 символов)</label>
+                <label for="modalDigrep">ЦОНТ URL (опционально, до 100 символов)</label>
                 <input type="text" id="modalDigrep" placeholder="https://...">
             </div>
             <div class="form-row">
@@ -452,11 +510,21 @@
                 </div>
             </div>
             <div class="modal-status" id="modalStatus"></div>
+            <div class="modal-warning" id="confluenceWarning">
+                <strong>Будет выполнено:</strong><br>
+                1. Удаление дочерних страниц<br>
+                2. Удалены вложения указанной страницы<br>
+                3. Заменён контент указанной страницы<br>
+                4. Архив будет сохранён в БД
+            </div>
+            <div class="confirm-slider-wrap">
+                <label id="confirmSliderLabel">Перетяните вправо для подтверждения</label>
+                <div class="confirm-slider" id="confirmSlider" role="slider" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" tabindex="0">
+                    <span class="thumb" id="confirmThumb"></span>
+                </div>
+            </div>
             <div class="modal-buttons">
-                <button type="button" onclick="archiveStep2()" class="secondary">2. Сохранить список дочерних и удалить их в Confluence</button>
-                <button type="button" onclick="archiveStep3()" class="secondary">3. Удалить вложения со страницы</button>
-                <button type="button" onclick="archiveStep4()" class="secondary">4. Заменить контент на текст об архивации</button>
-                <button type="button" onclick="archiveStep5()" class="secondary">5. Сохранить в БД</button>
+                <button type="button" id="cleanupAndSaveBtn" disabled onclick="cleanupConfluenceAndSave()">Зачистить Confluence и сохранить</button>
             </div>
         </div>
     </div>
@@ -505,6 +573,8 @@
             document.getElementById('tooltip-json').style.display = 'none';
         }
 
+        let confirmSliderActive = false;
+
         function openAddModal() {
             document.getElementById('addModal').classList.add('open');
             archiveState = {};
@@ -512,6 +582,105 @@
             document.getElementById('uploadFilename').textContent = '';
             document.getElementById('archiveFileInput').value = '';
             document.getElementById('uploadZone').classList.remove('drag-over');
+            resetConfirmSlider();
+        }
+
+        function resetConfirmSlider() {
+            confirmSliderActive = false;
+            const track = document.getElementById('confirmSlider');
+            const thumb = document.getElementById('confirmThumb');
+            const btn = document.getElementById('cleanupAndSaveBtn');
+            track.classList.remove('confirmed');
+            thumb.style.left = '4px';
+            thumb.style.transition = '';
+            btn.disabled = true;
+            track.setAttribute('aria-valuenow', '0');
+        }
+
+        function setConfirmSliderOn() {
+            confirmSliderActive = true;
+            const track = document.getElementById('confirmSlider');
+            const thumb = document.getElementById('confirmThumb');
+            const btn = document.getElementById('cleanupAndSaveBtn');
+            track.classList.add('confirmed');
+            thumb.style.left = 'calc(100% - 32px)';
+            thumb.style.transition = 'left 0.15s ease-out, background 0.2s';
+            btn.disabled = false;
+            track.setAttribute('aria-valuenow', '100');
+        }
+
+        function setupConfirmSlider() {
+            const track = document.getElementById('confirmSlider');
+            const thumb = document.getElementById('confirmThumb');
+            const threshold = 0.85;
+            let dragging = false;
+
+            function updateFromEvent(clientX) {
+                if (!dragging) return;
+                const trackRect = track.getBoundingClientRect();
+                const maxLeft = trackRect.width - 32;
+                let left = clientX - trackRect.left - 14;
+                left = Math.min(maxLeft, Math.max(4, left));
+                thumb.style.left = left + 'px';
+                if (left >= maxLeft * threshold && !confirmSliderActive) {
+                    setConfirmSliderOn();
+                }
+            }
+
+            function stopDrag() {
+                dragging = false;
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', stopDrag);
+                document.removeEventListener('touchmove', onTouchMove, { passive: false });
+                document.removeEventListener('touchend', stopTouch);
+                if (!confirmSliderActive) {
+                    thumb.style.transition = 'left 0.2s ease-out';
+                    thumb.style.left = '4px';
+                }
+            }
+
+            function onMove(e) {
+                updateFromEvent(e.clientX);
+            }
+            function onTouchMove(e) {
+                if (e.touches.length) {
+                    e.preventDefault();
+                    updateFromEvent(e.touches[0].clientX);
+                }
+            }
+            function stopTouch() {
+                dragging = false;
+                document.removeEventListener('touchmove', onTouchMove, { passive: false });
+                document.removeEventListener('touchend', stopTouch);
+                if (!confirmSliderActive) {
+                    thumb.style.transition = 'left 0.2s ease-out';
+                    thumb.style.left = '4px';
+                }
+            }
+
+            thumb.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                dragging = true;
+                thumb.style.transition = 'none';
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', stopDrag);
+            });
+            track.addEventListener('mousedown', function(e) {
+                if (e.target === thumb) return;
+                e.preventDefault();
+                dragging = true;
+                thumb.style.transition = 'none';
+                updateFromEvent(e.clientX);
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', stopDrag);
+            });
+            thumb.addEventListener('touchstart', function(e) {
+                e.preventDefault();
+                dragging = true;
+                thumb.style.transition = 'none';
+                document.addEventListener('touchmove', onTouchMove, { passive: false });
+                document.addEventListener('touchend', stopTouch);
+            }, { passive: false });
         }
         function closeAddModal() {
             document.getElementById('addModal').classList.remove('open');
@@ -585,7 +754,7 @@
                 if (res.ok) {
                     archiveState = { ...archiveState, ...data, project };
                     document.getElementById('uploadFilename').textContent = 'Загружено: ' + file.name;
-                    setStatus('Готово. ID: ' + data.archiveId + '. Можно сохранить в БД (шаг 5).');
+                    setStatus('Готово. ID: ' + data.archiveId + '. При необходимости перетяните рубильник и нажмите «Зачистить Confluence и сохранить».');
                 } else {
                     setStatus('Ошибка: ' + (data.error || res.status), true);
                 }
@@ -594,68 +763,14 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', setupUploadZone);
+        document.addEventListener('DOMContentLoaded', function() {
+            setupUploadZone();
+            setupConfirmSlider();
+        });
 
-        async function archiveStep2() {
-            if (!archiveState.confluenceUrl || !archiveState.childPageIds?.length) {
-                setStatus('Сначала выполните шаг 1', true);
-                return;
-            }
-            setStatus('Удаление дочерних страниц...');
-            const { ok, data } = await apiPost('/api/archive/delete-children', {
-                confluenceUrl: archiveState.confluenceUrl,
-                childPageIds: archiveState.childPageIds
-            });
-            if (ok) {
-                setStatus('Дочерние страницы удалены. Список сохранён для json_info.');
-            } else {
-                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
-            }
-        }
-
-        async function archiveStep3() {
-            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
-            if (!url) {
-                setStatus('Укажите URL страницы', true);
-                return;
-            }
-            setStatus('Удаление вложений...');
-            const { ok, data } = await apiPost('/api/archive/delete-attachments', { confluenceUrl: url });
-            if (ok) {
-                setStatus('Вложения удалены.');
-            } else {
-                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
-            }
-        }
-
-        async function archiveStep4() {
+        async function cleanupConfluenceAndSave() {
             if (!archiveState.archiveId || !archiveState.pageTitle) {
-                setStatus('Сначала выполните шаг 1', true);
-                return;
-            }
-            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
-            if (!url) {
-                setStatus('Укажите URL страницы', true);
-                return;
-            }
-            setStatus('Замена контента...');
-            const { ok, data } = await apiPost('/api/archive/replace-content', {
-                confluenceUrl: url,
-                pageTitle: archiveState.pageTitle,
-                archiveId: archiveState.archiveId,
-                project: archiveState.project,
-                jiraKey: document.getElementById('modalJiraKey').value.trim() || null
-            });
-            if (ok) {
-                setStatus('Контент заменён на текст об архивации.');
-            } else {
-                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
-            }
-        }
-
-        async function archiveStep5() {
-            if (!archiveState.archiveId || !archiveState.pageTitle) {
-                setStatus('Сначала выполните шаг 1', true);
+                setStatus('Сначала загрузите архив', true);
                 return;
             }
             const project = getModalProject() || archiveState.project;
@@ -663,20 +778,59 @@
                 setStatus('Укажите проект', true);
                 return;
             }
-            setStatus('Сохранение в БД...');
-            const { ok, data } = await apiPost('/api/archive/save-to-db', {
-                archiveId: archiveState.archiveId,
-                name: archiveState.pageTitle,
-                project,
-                childPageNames: archiveState.childPageNames || [],
-                jiraKey: document.getElementById('modalJiraKey').value.trim() || null,
-                digrep: document.getElementById('modalDigrep').value.trim() || null
-            });
-            if (ok) {
-                setStatus('Сохранено в БД. ID: ' + data.id);
-                setTimeout(() => { closeAddModal(); location.reload(); }, 1500);
-            } else {
-                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
+
+            const btn = document.getElementById('cleanupAndSaveBtn');
+            btn.disabled = true;
+            btn.textContent = 'Выполняю…';
+
+            try {
+                if (url && archiveState.childPageIds?.length) {
+                    setStatus('Удаление дочерних страниц...');
+                    const r2 = await apiPost('/api/archive/delete-children', { confluenceUrl: url, childPageIds: archiveState.childPageIds });
+                    if (!r2.ok) {
+                        setStatus('Ошибка: ' + (r2.data.error || 'неизвестно'), true);
+                        return;
+                    }
+                }
+                if (url) {
+                    setStatus('Удаление вложений...');
+                    const r3 = await apiPost('/api/archive/delete-attachments', { confluenceUrl: url });
+                    if (!r3.ok) {
+                        setStatus('Ошибка: ' + (r3.data.error || 'неизвестно'), true);
+                        return;
+                    }
+                    setStatus('Замена контента...');
+                    const r4 = await apiPost('/api/archive/replace-content', {
+                        confluenceUrl: url,
+                        pageTitle: archiveState.pageTitle,
+                        archiveId: archiveState.archiveId,
+                        project: archiveState.project,
+                        jiraKey: document.getElementById('modalJiraKey').value.trim() || null
+                    });
+                    if (!r4.ok) {
+                        setStatus('Ошибка: ' + (r4.data.error || 'неизвестно'), true);
+                        return;
+                    }
+                }
+                setStatus('Сохранение в БД...');
+                const r5 = await apiPost('/api/archive/save-to-db', {
+                    archiveId: archiveState.archiveId,
+                    name: archiveState.pageTitle,
+                    project,
+                    childPageNames: archiveState.childPageNames || [],
+                    jiraKey: document.getElementById('modalJiraKey').value.trim() || null,
+                    digrep: document.getElementById('modalDigrep').value.trim() || null
+                });
+                if (r5.ok) {
+                    setStatus('Сохранено в БД. ID: ' + r5.data.id);
+                    setTimeout(() => { closeAddModal(); location.reload(); }, 1500);
+                } else {
+                    setStatus('Ошибка: ' + (r5.data.error || 'неизвестно'), true);
+                }
+            } finally {
+                btn.disabled = !confirmSliderActive;
+                btn.textContent = 'Зачистить Confluence и сохранить';
             }
         }
 
