@@ -1,26 +1,70 @@
 package com.example.ConflArchReport.controller;
 
 import com.example.ConflArchReport.entity.ArchivedReport;
+import com.example.ConflArchReport.service.ArchivedReportService;
 import com.example.ConflArchReport.service.ConfluenceArchiveService;
+import com.example.ConflArchReport.service.ZipReportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/archive")
 public class ArchiveController {
 
     private final ConfluenceArchiveService confluenceArchiveService;
+    private final ZipReportService zipReportService;
+    private final ArchivedReportService archivedReportService;
 
-    public ArchiveController(ConfluenceArchiveService confluenceArchiveService) {
+    public ArchiveController(ConfluenceArchiveService confluenceArchiveService,
+                             ZipReportService zipReportService,
+                             ArchivedReportService archivedReportService) {
         this.confluenceArchiveService = confluenceArchiveService;
+        this.zipReportService = zipReportService;
+        this.archivedReportService = archivedReportService;
     }
 
     /**
-     * Шаг 1: Экспорт страницы Confluence и дочерних в zip, сохранение на сервере
+     * Загрузка zip-архива на сервер (вместо экспорта из Confluence).
+     * Сохраняет файл в reports/{project}/{archiveId}.zip и возвращает archiveId и pageTitle (из index.html).
+     */
+    @PostMapping("/upload")
+    public ResponseEntity<?> uploadZip(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("project") String project) {
+        if (project == null || project.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Укажите проект"));
+        }
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Выберите zip-файл"));
+        }
+        String originalName = file.getOriginalFilename();
+        if (originalName == null || !originalName.toLowerCase().endsWith(".zip")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Файл должен быть в формате .zip"));
+        }
+        try {
+            archivedReportService.getOrCreateProject(project);
+            String archiveId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+            zipReportService.saveUploadedZip(project, archiveId, file.getInputStream());
+            String pageTitle = zipReportService.extractPageTitleFromArchive(project, archiveId)
+                    .orElse(originalName.replaceAll("\\.zip$", ""));
+            return ResponseEntity.ok(Map.of(
+                    "archiveId", archiveId,
+                    "pageTitle", pageTitle,
+                    "project", project
+            ));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка сохранения архива: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Экспорт страницы Confluence и дочерних в zip, сохранение на сервере (устаревший шаг 1, оставлен для совместимости).
      */
     @PostMapping("/export")
     public ResponseEntity<?> exportToZip(@RequestBody Map<String, String> request) {

@@ -282,6 +282,32 @@
             display: none;
         }
         html.theme-light #tooltip-json { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            background: var(--bg-card);
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .upload-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(88, 166, 255, 0.08);
+        }
+        .upload-zone .upload-btn {
+            margin-bottom: 0.5rem;
+        }
+        .upload-zone .upload-hint {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .upload-zone .upload-filename {
+            display: block;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--success);
+        }
     </style>
 </head>
 <body>
@@ -416,9 +442,17 @@
                 <label for="modalDigrep">Digrep URL (опционально, до 100 символов)</label>
                 <input type="text" id="modalDigrep" placeholder="https://...">
             </div>
+            <div class="form-row">
+                <label>Загрузить архив (zip)</label>
+                <div class="upload-zone" id="uploadZone">
+                    <input type="file" id="archiveFileInput" accept=".zip" hidden>
+                    <button type="button" class="upload-btn" onclick="document.getElementById('archiveFileInput').click()">Загрузить архив</button>
+                    <span class="upload-hint">или перетащите zip-файл сюда</span>
+                    <span class="upload-filename" id="uploadFilename"></span>
+                </div>
+            </div>
             <div class="modal-status" id="modalStatus"></div>
             <div class="modal-buttons">
-                <button type="button" onclick="archiveStep1()">1. Экспорт в zip и сохранение на сервере</button>
                 <button type="button" onclick="archiveStep2()" class="secondary">2. Сохранить список дочерних и удалить их в Confluence</button>
                 <button type="button" onclick="archiveStep3()" class="secondary">3. Удалить вложения со страницы</button>
                 <button type="button" onclick="archiveStep4()" class="secondary">4. Заменить контент на текст об архивации</button>
@@ -475,6 +509,9 @@
             document.getElementById('addModal').classList.add('open');
             archiveState = {};
             document.getElementById('modalStatus').textContent = '';
+            document.getElementById('uploadFilename').textContent = '';
+            document.getElementById('archiveFileInput').value = '';
+            document.getElementById('uploadZone').classList.remove('drag-over');
         }
         function closeAddModal() {
             document.getElementById('addModal').classList.remove('open');
@@ -500,22 +537,64 @@
             return custom || document.getElementById('modalProject').value;
         }
 
-        async function archiveStep1() {
-            const url = document.getElementById('modalUrl').value.trim();
+        function setupUploadZone() {
+            const zone = document.getElementById('uploadZone');
+            const input = document.getElementById('archiveFileInput');
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+                zone.addEventListener(ev, e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            });
+            ['dragenter', 'dragover'].forEach(ev => {
+                zone.addEventListener(ev, () => zone.classList.add('drag-over'));
+            });
+            ['dragleave', 'drop'].forEach(ev => {
+                zone.addEventListener(ev, () => zone.classList.remove('drag-over'));
+            });
+            zone.addEventListener('drop', e => {
+                const file = e.dataTransfer?.files?.[0];
+                if (file && file.name.toLowerCase().endsWith('.zip')) {
+                    uploadArchive(file);
+                } else {
+                    setStatus('Выберите файл .zip', true);
+                }
+            });
+            input.addEventListener('change', () => {
+                const file = input.files?.[0];
+                if (file) uploadArchive(file);
+            });
+        }
+
+        async function uploadArchive(file) {
             const project = getModalProject();
-            if (!url || !project) {
-                setStatus('Укажите URL и проект', true);
+            if (!project) {
+                setStatus('Сначала выберите или введите проект', true);
                 return;
             }
-            setStatus('Экспорт...');
-            const { ok, data } = await apiPost('/api/archive/export', { confluenceUrl: url, project });
-            if (ok) {
-                archiveState = { ...archiveState, ...data, confluenceUrl: url, project };
-                setStatus('Готово. ID: ' + data.archiveId + ', дочерних: ' + (data.childPageNames?.length || 0));
-            } else {
-                setStatus('Ошибка: ' + (data.error || 'неизвестно'), true);
+            setStatus('Загрузка...');
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('project', project);
+            try {
+                const res = await fetch('/api/archive/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    archiveState = { ...archiveState, ...data, project };
+                    document.getElementById('uploadFilename').textContent = 'Загружено: ' + file.name;
+                    setStatus('Готово. ID: ' + data.archiveId + '. Можно сохранить в БД (шаг 5).');
+                } else {
+                    setStatus('Ошибка: ' + (data.error || res.status), true);
+                }
+            } catch (e) {
+                setStatus('Ошибка: ' + e.message, true);
             }
         }
+
+        document.addEventListener('DOMContentLoaded', setupUploadZone);
 
         async function archiveStep2() {
             if (!archiveState.confluenceUrl || !archiveState.childPageIds?.length) {
