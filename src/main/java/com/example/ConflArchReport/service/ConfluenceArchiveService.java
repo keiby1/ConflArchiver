@@ -253,6 +253,25 @@ public class ConfluenceArchiveService {
     }
 
     /**
+     * Удаляет все дочерние страницы, найденные по URL корневой страницы, и возвращает их названия.
+     * Используется, когда заранее нет списка childPageIds.
+     */
+    public List<String> deleteChildPagesByUrl(String confluenceUrl) {
+        ConfluenceUrlParser.ParsedUrl parsed = ConfluenceUrlParser.parse(confluenceUrl);
+        String apiBase = parsed.getApiBaseUrl();
+        String pageId = parsed.pageId();
+
+        ConfluenceApiResponse mainPage = fetchPageOrThrow(apiBase, pageId, "корневая страница");
+        List<ConfluenceApiResponse.ChildRef> childRefs = getChildPages(mainPage);
+        if (childRefs.isEmpty()) {
+            return List.of();
+        }
+        List<String> ids = childRefs.stream().map(ConfluenceApiResponse.ChildRef::getId).toList();
+        deleteChildPages(confluenceUrl, ids);
+        return childRefs.stream().map(ConfluenceApiResponse.ChildRef::getTitle).toList();
+    }
+
+    /**
      * Шаг 3: Удаление всех вложений со страницы
      */
     public void deleteAttachments(String confluenceUrl) {

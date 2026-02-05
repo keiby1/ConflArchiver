@@ -785,12 +785,18 @@
             btn.textContent = 'Выполняю…';
 
             try {
-                if (url && archiveState.childPageIds?.length) {
+                if (url) {
                     setStatus('Удаление дочерних страниц...');
-                    const r2 = await apiPost('/api/archive/delete-children', { confluenceUrl: url, childPageIds: archiveState.childPageIds });
+                    const r2 = await apiPost('/api/archive/delete-children', {
+                        confluenceUrl: url,
+                        childPageIds: archiveState.childPageIds
+                    });
                     if (!r2.ok) {
                         setStatus('Ошибка: ' + (r2.data.error || 'неизвестно'), true);
                         return;
+                    }
+                    if (Array.isArray(r2.data.childPageNames) && r2.data.childPageNames.length) {
+                        archiveState.childPageNames = r2.data.childPageNames;
                     }
                 }
                 if (url) {

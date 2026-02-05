@@ -92,19 +92,33 @@ public class ArchiveController {
     }
 
     /**
-     * Шаг 2: Удаление дочерних страниц в Confluence
+     * Шаг 2: Удаление дочерних страниц в Confluence.
+     * Если передан список childPageIds — используем его.
+     * Если нет — получаем список дочерних страниц по URL и удаляем их.
      */
     @PostMapping("/delete-children")
     public ResponseEntity<?> deleteChildren(@RequestBody Map<String, Object> request) {
         String confluenceUrl = (String) request.get("confluenceUrl");
         @SuppressWarnings("unchecked")
         List<String> childPageIds = (List<String>) request.get("childPageIds");
-        if (confluenceUrl == null || confluenceUrl.isBlank() || childPageIds == null || childPageIds.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Требуются confluenceUrl и childPageIds"));
+        if (confluenceUrl == null || confluenceUrl.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Требуется confluenceUrl"));
         }
         try {
-            confluenceArchiveService.deleteChildPages(confluenceUrl, childPageIds);
-            return ResponseEntity.ok(Map.of("success", true));
+            if (childPageIds != null && !childPageIds.isEmpty()) {
+                confluenceArchiveService.deleteChildPages(confluenceUrl, childPageIds);
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "mode", "explicitIds"
+                ));
+            } else {
+                List<String> deletedNames = confluenceArchiveService.deleteChildPagesByUrl(confluenceUrl);
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "mode", "byUrl",
+                        "childPageNames", deletedNames
+                ));
+            }
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
