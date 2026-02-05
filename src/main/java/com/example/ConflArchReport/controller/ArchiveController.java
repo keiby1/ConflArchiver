@@ -173,14 +173,13 @@ public class ArchiveController {
         @SuppressWarnings("unchecked")
         List<String> childPageNames = (List<String>) request.get("childPageNames");
         String jiraKey = (String) request.get("jiraKey");
-        String digrep = (String) request.get("digrep");
 
         if (archiveId == null || archiveId.isBlank() || name == null || name.isBlank() || project == null || project.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Требуются archiveId, name, project"));
         }
         try {
             ArchivedReport report = confluenceArchiveService.saveToDatabase(
-                    archiveId, name, project, childPageNames, jiraKey, digrep);
+                    archiveId, name, project, childPageNames, jiraKey);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "id", report.getId(),

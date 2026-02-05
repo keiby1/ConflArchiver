@@ -88,7 +88,6 @@ confluence.api-token=your-bearer-token
 - name — название (до 1000 символов)
 - project_id (FK)
 - jira_key — ключ тикета Jira
-- digrep — URL (до 100 символов)
 - json_info — JSON (доп. информация, nullable)
 
 ## Сборка и запуск

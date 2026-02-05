@@ -497,10 +497,6 @@
                 <input type="text" id="modalJiraKey" placeholder="PROJ-123">
             </div>
             <div class="form-row">
-                <label for="modalDigrep">ЦОНТ URL (опционально, до 100 символов)</label>
-                <input type="text" id="modalDigrep" placeholder="https://...">
-            </div>
-            <div class="form-row">
                 <label>Загрузить архив (zip)</label>
                 <div class="upload-zone" id="uploadZone">
                     <input type="file" id="archiveFileInput" accept=".zip" hidden>
@@ -550,8 +546,13 @@
             const el = e.currentTarget;
             const json = el.getAttribute('data-json');
             if (!json) return;
+            let formatted = json;
+            try {
+                const parsed = JSON.parse(json);
+                formatted = JSON.stringify(parsed, null, 2);
+            } catch (_) { /* оставляем как есть */ }
             const tip = document.getElementById('tooltip-json');
-            tip.textContent = json;
+            tip.textContent = formatted;
             tip.style.display = 'block';
             moveJsonTooltip(e);
         }
@@ -825,8 +826,7 @@
                     name: archiveState.pageTitle,
                     project,
                     childPageNames: archiveState.childPageNames || [],
-                    jiraKey: document.getElementById('modalJiraKey').value.trim() || null,
-                    digrep: document.getElementById('modalDigrep').value.trim() || null
+                    jiraKey: document.getElementById('modalJiraKey').value.trim() || null
                 });
                 if (r5.ok) {
                     setStatus('Сохранено в БД. ID: ' + r5.data.id);

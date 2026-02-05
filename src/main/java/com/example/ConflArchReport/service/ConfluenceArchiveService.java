@@ -354,11 +354,10 @@ public class ConfluenceArchiveService {
      * Шаг 5: Сохранение информации в БД
      */
     public ArchivedReport saveToDatabase(String archiveId, String name, String projectName,
-                                         List<String> childPageNames, String jiraKey, String digrep) {
+                                         List<String> childPageNames, String jiraKey) {
         Project project = archivedReportService.getOrCreateProject(projectName);
         ArchivedReport report = new ArchivedReport(archiveId, name, project);
         report.setJiraKey(jiraKey != null && !jiraKey.isBlank() ? jiraKey : null);
-        report.setDigrep(digrep != null && digrep.length() > 100 ? digrep.substring(0, 100) : digrep);
 
         if (childPageNames != null && !childPageNames.isEmpty()) {
             report.setJsonInfo(Map.of("childPages", childPageNames));

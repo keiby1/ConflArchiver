@@ -32,9 +32,6 @@ public class ArchivedReport {
     @Column(name = "jira_key", length = 50)
     private String jiraKey;
 
-    @Column(length = 100)
-    private String digrep;
-
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "json_info", columnDefinition = "jsonb")
     private Map<String, Object> jsonInfo;
@@ -86,14 +83,6 @@ public class ArchivedReport {
 
     public void setJiraKey(String jiraKey) {
         this.jiraKey = jiraKey;
-    }
-
-    public String getDigrep() {
-        return digrep;
-    }
-
-    public void setDigrep(String digrep) {
-        this.digrep = digrep;
     }
 
     public Map<String, Object> getJsonInfo() {
