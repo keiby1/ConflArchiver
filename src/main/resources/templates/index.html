@@ -493,10 +493,6 @@
                 <input type="text" id="modalProjectNew" placeholder="Название нового проекта">
             </div>
             <div class="form-row">
-                <label for="modalJiraKey">Jira ключ (опционально)</label>
-                <input type="text" id="modalJiraKey" placeholder="PROJ-123">
-            </div>
-            <div class="form-row">
                 <label>Загрузить архив (zip)</label>
                 <div class="upload-zone" id="uploadZone">
                     <input type="file" id="archiveFileInput" accept=".zip" hidden>
@@ -541,6 +537,15 @@
             setTheme(next);
         }
         setTheme(getTheme());
+
+        /** Извлекает ключ Jira из названия страницы формата "ключДжира | НазваниеСтраницы | датаВремя" */
+        function extractJiraKeyFromPageTitle(pageTitle) {
+            if (!pageTitle || typeof pageTitle !== 'string') return null;
+            const part = pageTitle.split(/\s*\|\s*/)[0].trim();
+            if (!part) return null;
+            if (/^[A-Z0-9]+-\d+$/i.test(part)) return part;
+            return null;
+        }
 
         function showJsonTooltip(e) {
             const el = e.currentTarget;
@@ -813,7 +818,7 @@
                         pageTitle: archiveState.pageTitle,
                         archiveId: archiveState.archiveId,
                         project: archiveState.project,
-                        jiraKey: document.getElementById('modalJiraKey').value.trim() || null
+                        jiraKey: extractJiraKeyFromPageTitle(archiveState.pageTitle) || null
                     });
                     if (!r4.ok) {
                         setStatus('Ошибка: ' + (r4.data.error || 'неизвестно'), true);
@@ -826,7 +831,7 @@
                     name: archiveState.pageTitle,
                     project,
                     childPageNames: archiveState.childPageNames || [],
-                    jiraKey: document.getElementById('modalJiraKey').value.trim() || null
+                    jiraKey: extractJiraKeyFromPageTitle(archiveState.pageTitle) || null
                 });
                 if (r5.ok) {
                     setStatus('Сохранено в БД. ID: ' + r5.data.id);
