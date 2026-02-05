@@ -335,7 +335,7 @@
             position: relative;
             height: 36px;
             background: var(--border);
-            border-radius: 18px;
+            border-radius: 0;
             cursor: pointer;
             user-select: none;
             touch-action: none;
@@ -350,7 +350,7 @@
             width: 28px;
             height: 28px;
             background: #9ca3af;
-            border-radius: 50%;
+            border-radius: 0;
             cursor: grab;
             transition: background 0.2s, left 0.15s ease-out;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
@@ -615,10 +615,20 @@
             track.setAttribute('aria-valuenow', '100');
         }
 
+        function setConfirmSliderOff() {
+            confirmSliderActive = false;
+            const track = document.getElementById('confirmSlider');
+            const btn = document.getElementById('cleanupAndSaveBtn');
+            track.classList.remove('confirmed');
+            btn.disabled = true;
+            track.setAttribute('aria-valuenow', '0');
+        }
+
         function setupConfirmSlider() {
             const track = document.getElementById('confirmSlider');
             const thumb = document.getElementById('confirmThumb');
             const threshold = 0.85;
+            const resetThreshold = 0.5;
             let dragging = false;
 
             function updateFromEvent(clientX) {
@@ -630,6 +640,8 @@
                 thumb.style.left = left + 'px';
                 if (left >= maxLeft * threshold && !confirmSliderActive) {
                     setConfirmSliderOn();
+                } else if (left < maxLeft * resetThreshold && confirmSliderActive) {
+                    setConfirmSliderOff();
                 }
             }
 
