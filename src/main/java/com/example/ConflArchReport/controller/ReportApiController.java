@@ -85,6 +85,14 @@ public class ReportApiController {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(mediaType);
         headers.set(HttpHeaders.CACHE_CONTROL, "private, max-age=3600");
+        
+        // Для zip файлов и других архивов устанавливаем Content-Disposition для правильной обработки браузером
+        String filename = normalizedPath.substring(normalizedPath.lastIndexOf('/') + 1);
+        if (normalizedPath.toLowerCase().endsWith(".zip") || 
+            normalizedPath.toLowerCase().endsWith(".rar") || 
+            normalizedPath.toLowerCase().endsWith(".7z")) {
+            headers.setContentDispositionFormData("attachment", filename);
+        }
 
         return new ResponseEntity<>(fileContent.get(), headers, HttpStatus.OK);
     }

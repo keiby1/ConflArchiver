@@ -103,7 +103,16 @@ public class ZipReportService {
                     continue;
                 }
                 String entryName = entry.getName().replace('\\', '/');
-                if (entryName.equals(normalized) || entryName.endsWith("/" + normalized)) {
+                // Точное совпадение пути
+                if (entryName.equals(normalized)) {
+                    return Optional.of(zis.readAllBytes());
+                }
+                // Проверка совпадения с учетом возможного ведущего слеша в entryName
+                if (entryName.startsWith("/") && entryName.substring(1).equals(normalized)) {
+                    return Optional.of(zis.readAllBytes());
+                }
+                // Проверка совпадения, если normalized начинается со слеша, а entryName - нет
+                if (!entryName.startsWith("/") && ("/" + entryName).equals(normalized)) {
                     return Optional.of(zis.readAllBytes());
                 }
             }
