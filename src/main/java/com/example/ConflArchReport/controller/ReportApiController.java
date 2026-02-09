@@ -47,8 +47,9 @@ public class ReportApiController {
 
     /**
      * Со слешем: index или конкретный путь. path приходит без ведущего слеша (пустая строка для /{project}/{id}/).
+     * Регулярка {path:.*} нужна, чтобы path не обрезался после точки (Spring по умолчанию трактует .doc, .zip и т.д. как суффикс формата).
      */
-    @GetMapping("/{project}/{id}/{*path}")
+    @GetMapping("/{project}/{id}/{*path:.*}")
     public ResponseEntity<?> getReportResource(
             @PathVariable String project,
             @PathVariable String id,
@@ -86,11 +87,19 @@ public class ReportApiController {
         headers.setContentType(mediaType);
         headers.set(HttpHeaders.CACHE_CONTROL, "private, max-age=3600");
         
-        // Для zip файлов и других архивов устанавливаем Content-Disposition для правильной обработки браузером
+        // Для zip, архивов и документов устанавливаем Content-Disposition для правильной обработки браузером
         String filename = normalizedPath.substring(normalizedPath.lastIndexOf('/') + 1);
         if (normalizedPath.toLowerCase().endsWith(".zip") || 
             normalizedPath.toLowerCase().endsWith(".rar") || 
-            normalizedPath.toLowerCase().endsWith(".7z")) {
+            normalizedPath.toLowerCase().endsWith(".7z") ||
+            normalizedPath.toLowerCase().endsWith(".doc") ||
+            normalizedPath.toLowerCase().endsWith(".docx") ||
+            normalizedPath.toLowerCase().endsWith(".pdf") ||
+            normalizedPath.toLowerCase().endsWith(".xls") ||
+            normalizedPath.toLowerCase().endsWith(".xlsx") ||
+            normalizedPath.toLowerCase().endsWith(".ppt") ||
+            normalizedPath.toLowerCase().endsWith(".pptx") ||
+            normalizedPath.toLowerCase().endsWith(".csv")) {
             headers.setContentDispositionFormData("attachment", filename);
         }
 
