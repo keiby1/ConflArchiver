@@ -1,5 +1,6 @@
 package com.example.ConflArchReport.service;
 
+import com.example.ConflArchReport.Utils.ConstContent;
 import com.example.ConflArchReport.confluence.ConfluenceApiResponse;
 import com.example.ConflArchReport.confluence.ConfluenceUrlParser;
 import com.example.ConflArchReport.entity.ArchivedReport;
@@ -328,10 +329,7 @@ public class ConfluenceArchiveService {
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
         String ticket = (jiraKey != null && !jiraKey.isBlank()) ? jiraKey : "TICKET-PLACEHOLDER";
 
-        String newContent = """
-                <p>Заключение НТ %s по тикету %s было архивировано %s.</p>
-                <p>Для просмотра используйте: <a href="%s">%s</a></p>
-                """.formatted(pageTitle, ticket, now, viewUrl, viewUrl);
+        String newContent = ConstContent.getPlaceholderText(pageTitle, ticket, now, viewUrl);
 
         int nextVersion = getCurrentVersion(apiBase, pageId) + 1;
         Map<String, Object> request = Map.of(
