@@ -283,32 +283,6 @@
             display: none;
         }
         html.theme-light #tooltip-json { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
-        .upload-zone {
-            border: 2px dashed var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            text-align: center;
-            background: var(--bg-card);
-            transition: border-color 0.2s, background 0.2s;
-        }
-        .upload-zone.drag-over {
-            border-color: var(--accent);
-            background: rgba(88, 166, 255, 0.08);
-        }
-        .upload-zone .upload-btn {
-            margin-bottom: 0.5rem;
-        }
-        .upload-zone .upload-hint {
-            display: block;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-        .upload-zone .upload-filename {
-            display: block;
-            margin-top: 0.5rem;
-            font-size: 0.85rem;
-            color: var(--success);
-        }
         .modal-warning {
             background: rgba(210, 170, 0, 0.18);
             border: 1px solid #d4a700;
@@ -493,22 +467,14 @@
                 <label for="modalProjectNew">Или введите новый проект</label>
                 <input type="text" id="modalProjectNew" placeholder="Название нового проекта">
             </div>
-            <div class="form-row">
-                <label>Загрузить архив (zip)</label>
-                <div class="upload-zone" id="uploadZone">
-                    <input type="file" id="archiveFileInput" accept=".zip" hidden>
-                    <button type="button" class="upload-btn" onclick="document.getElementById('archiveFileInput').click()">Загрузить архив</button>
-                    <span class="upload-hint">или перетащите zip-файл сюда</span>
-                    <span class="upload-filename" id="uploadFilename"></span>
-                </div>
-            </div>
             <div class="modal-status" id="modalStatus"></div>
             <div class="modal-warning" id="confluenceWarning">
                 <strong>Будет выполнено:</strong><br>
-                1. Удаление дочерних страниц<br>
-                2. Удалены вложения указанной страницы<br>
-                3. Заменён контент указанной страницы<br>
-                4. Архив будет сохранён в БД
+                1. Выгрузка архива<br>
+                2. Удаление дочерних страниц<br>
+                3. Удаление вложений указанной страницы<br>
+                4. Замена контента указанной страницы<br>
+                5. Сохранение архива в БД
             </div>
             <div class="confirm-slider-wrap">
                 <label id="confirmSliderLabel">Перетяните вправо для подтверждения</label>
@@ -517,7 +483,7 @@
                 </div>
             </div>
             <div class="modal-buttons">
-                <button type="button" id="cleanupAndSaveBtn" disabled onclick="cleanupConfluenceAndSave()">Зачистить Confluence и сохранить</button>
+                <button type="button" id="cleanupAndSaveBtn" disabled onclick="cleanupConfluenceAndSave()">Выгрузить, Зачистить и сохранить</button>
             </div>
         </div>
     </div>
@@ -586,9 +552,6 @@
             document.getElementById('addModal').classList.add('open');
             archiveState = {};
             document.getElementById('modalStatus').textContent = '';
-            document.getElementById('uploadFilename').textContent = '';
-            document.getElementById('archiveFileInput').value = '';
-            document.getElementById('uploadZone').classList.remove('drag-over');
             resetConfirmSlider();
         }
 
@@ -725,85 +688,40 @@
             return custom || document.getElementById('modalProject').value;
         }
 
-        function setupUploadZone() {
-            const zone = document.getElementById('uploadZone');
-            const input = document.getElementById('archiveFileInput');
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
-                zone.addEventListener(ev, e => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                });
-            });
-            ['dragenter', 'dragover'].forEach(ev => {
-                zone.addEventListener(ev, () => zone.classList.add('drag-over'));
-            });
-            ['dragleave', 'drop'].forEach(ev => {
-                zone.addEventListener(ev, () => zone.classList.remove('drag-over'));
-            });
-            zone.addEventListener('drop', e => {
-                const file = e.dataTransfer?.files?.[0];
-                if (file && file.name.toLowerCase().endsWith('.zip')) {
-                    uploadArchive(file);
-                } else {
-                    setStatus('Выберите файл .zip', true);
-                }
-            });
-            input.addEventListener('change', () => {
-                const file = input.files?.[0];
-                if (file) uploadArchive(file);
-            });
-        }
-
-        async function uploadArchive(file) {
-            const project = getModalProject();
-            if (!project) {
-                setStatus('Сначала выберите или введите проект', true);
-                return;
-            }
-            setStatus('Загрузка...');
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('project', project);
-            try {
-                const res = await fetch('/api/archive/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok) {
-                    archiveState = { ...archiveState, ...data, project };
-                    document.getElementById('uploadFilename').textContent = 'Загружено: ' + file.name;
-                    setStatus('Готово. ID: ' + data.archiveId + '. При необходимости перетяните рубильник и нажмите «Зачистить Confluence и сохранить».');
-                } else {
-                    setStatus('Ошибка: ' + (data.error || res.status), true);
-                }
-            } catch (e) {
-                setStatus('Ошибка: ' + e.message, true);
-            }
-        }
-
         document.addEventListener('DOMContentLoaded', function() {
-            setupUploadZone();
             setupConfirmSlider();
         });
 
         async function cleanupConfluenceAndSave() {
-            if (!archiveState.archiveId || !archiveState.pageTitle) {
-                setStatus('Сначала загрузите архив', true);
+            const url = document.getElementById('modalUrl').value.trim();
+            const project = getModalProject();
+            if (!url) {
+                setStatus('Введите URL страницы Confluence', true);
                 return;
             }
-            const project = getModalProject() || archiveState.project;
             if (!project) {
                 setStatus('Укажите проект', true);
                 return;
             }
-            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
 
             const btn = document.getElementById('cleanupAndSaveBtn');
             btn.disabled = true;
             btn.textContent = 'Выполняю…';
 
             try {
+                if (!archiveState.archiveId || !archiveState.pageTitle) {
+                    setStatus('Выгрузка архива...');
+                    const r1 = await apiPost('/api/archive/fetch-and-save', {
+                        confluenceUrl: url,
+                        project: project
+                    });
+                    if (!r1.ok) {
+                        setStatus('Ошибка: ' + (r1.data.error || 'неизвестно'), true);
+                        return;
+                    }
+                    archiveState = { ...archiveState, ...r1.data, project, confluenceUrl: url };
+                }
+
                 if (url) {
                     setStatus('Удаление дочерних страниц...');
                     const r2 = await apiPost('/api/archive/delete-children', {
@@ -854,7 +772,7 @@
                 }
             } finally {
                 btn.disabled = !confirmSliderActive;
-                btn.textContent = 'Зачистить Confluence и сохранить';
+                btn.textContent = 'Выгрузить, Зачистить и сохранить';
             }
         }
 

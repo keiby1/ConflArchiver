@@ -3,6 +3,7 @@ package com.example.ConflArchReport.controller;
 import com.example.ConflArchReport.entity.ArchivedReport;
 import com.example.ConflArchReport.service.ArchivedReportService;
 import com.example.ConflArchReport.service.ConfluenceArchiveService;
+import com.example.ConflArchReport.service.FetchArchiveService;
 import com.example.ConflArchReport.service.ZipReportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,13 +21,16 @@ public class ArchiveController {
     private final ConfluenceArchiveService confluenceArchiveService;
     private final ZipReportService zipReportService;
     private final ArchivedReportService archivedReportService;
+    private final FetchArchiveService fetchArchiveService;
 
     public ArchiveController(ConfluenceArchiveService confluenceArchiveService,
                              ZipReportService zipReportService,
-                             ArchivedReportService archivedReportService) {
+                             ArchivedReportService archivedReportService,
+                             FetchArchiveService fetchArchiveService) {
         this.confluenceArchiveService = confluenceArchiveService;
         this.zipReportService = zipReportService;
         this.archivedReportService = archivedReportService;
+        this.fetchArchiveService = fetchArchiveService;
     }
 
     /**
@@ -60,6 +64,33 @@ public class ArchiveController {
             ));
         } catch (IOException e) {
             return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка сохранения архива: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Шаг 1: Выгрузка архива через внешний REST API (реализация в FetchArchiveService.fetchZipFromExternalApi).
+     */
+    @PostMapping("/fetch-and-save")
+    public ResponseEntity<?> fetchAndSave(@RequestBody Map<String, String> request) {
+        String confluenceUrl = request.get("confluenceUrl");
+        String project = request.get("project");
+        if (confluenceUrl == null || confluenceUrl.isBlank() || project == null || project.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Требуются confluenceUrl и project"));
+        }
+        try {
+            FetchArchiveService.FetchResult result = fetchArchiveService.fetchAndSave(confluenceUrl, project);
+            return ResponseEntity.ok(Map.of(
+                    "archiveId", result.archiveId(),
+                    "pageTitle", result.pageTitle(),
+                    "childPageNames", result.childPageNames(),
+                    "childPageIds", result.childPageIds()
+            ));
+        } catch (UnsupportedOperationException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка выгрузки архива: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
 
