@@ -493,20 +493,14 @@
                 <label for="modalProjectNew">Или введите новый проект</label>
                 <input type="text" id="modalProjectNew" placeholder="Название нового проекта">
             </div>
-            <div class="form-row">
-                <label>Скачать архив с Confluence</label>
-                <div class="fetch-zone">
-                    <button type="button" class="upload-btn" id="fetchArchiveBtn" onclick="fetchArchiveFromConfluence()">Скачать архив по ссылке</button>
-                    <span class="upload-filename" id="uploadFilename"></span>
-                </div>
-            </div>
             <div class="modal-status" id="modalStatus"></div>
             <div class="modal-warning" id="confluenceWarning">
                 <strong>Будет выполнено:</strong><br>
-                1. Удаление дочерних страниц<br>
-                2. Удалены вложения указанной страницы<br>
-                3. Заменён контент указанной страницы<br>
-                4. Архив будет сохранён в БД
+                1. Скачивание архива с Confluence<br>
+                2. Удаление дочерних страниц<br>
+                3. Удаление вложений указанной страницы<br>
+                4. Замена контента указанной страницы<br>
+                5. Сохранение архива в БД
             </div>
             <div class="confirm-slider-wrap">
                 <label id="confirmSliderLabel">Перетяните вправо для подтверждения</label>
@@ -537,12 +531,30 @@
         }
         setTheme(getTheme());
 
-        /** Извлекает ключ Jira из названия страницы формата "ключДжира | НазваниеСтраницы | датаВремя" */
+        /** Извлекает ключ Jira из названия страницы. Поддерживает форматы:
+         * - "TICKET-123 | Название | дата"
+         * - "TICKET-123 Название"
+         * - "Название TICKET-123"
+         * - Просто "TICKET-123"
+         */
         function extractJiraKeyFromPageTitle(pageTitle) {
             if (!pageTitle || typeof pageTitle !== 'string') return null;
-            const part = pageTitle.split(/\s*\|\s*/)[0].trim();
-            if (!part) return null;
-            if (/^[A-Z0-9]+-\d+$/i.test(part)) return part;
+            
+            // Паттерн для тикета: буквы/цифры-цифры (например PROJ-123, TICKET-456)
+            const ticketPattern = /\b([A-Z0-9]+-\d+)\b/i;
+            
+            // Сначала пробуем формат "TICKET-123 | ..."
+            const parts = pageTitle.split(/\s*\|\s*/);
+            if (parts.length > 0) {
+                const firstPart = parts[0].trim();
+                const match = firstPart.match(ticketPattern);
+                if (match) return match[1].toUpperCase();
+            }
+            
+            // Ищем тикет в любом месте названия
+            const match = pageTitle.match(ticketPattern);
+            if (match) return match[1].toUpperCase();
+            
             return null;
         }
 
@@ -584,7 +596,6 @@
             document.getElementById('addModal').classList.add('open');
             archiveState = {};
             document.getElementById('modalStatus').textContent = '';
-            document.getElementById('uploadFilename').textContent = '';
             resetConfirmSlider();
         }
 
@@ -721,63 +732,43 @@
             return custom || document.getElementById('modalProject').value;
         }
 
-        /** Первый шаг: по URL страницы Confluence скачивает архив через sync-export и сохраняет на сервере. */
-        async function fetchArchiveFromConfluence() {
-            const url = document.getElementById('modalUrl').value.trim();
-            const project = getModalProject();
-            if (!url) {
-                setStatus('Введите URL страницы Confluence', true);
-                return;
-            }
-            if (!project) {
-                setStatus('Сначала выберите или введите проект', true);
-                return;
-            }
-            const btn = document.getElementById('fetchArchiveBtn');
-            btn.disabled = true;
-            setStatus('Скачивание архива с Confluence...');
-            try {
-                const res = await fetch('/api/archive/fetch-from-confluence', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ confluenceUrl: url, project })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok) {
-                    archiveState = { ...archiveState, ...data, project };
-                    document.getElementById('uploadFilename').textContent = 'Архив загружен. ID: ' + data.archiveId;
-                    setStatus('Готово. ID: ' + data.archiveId + '. При необходимости перетяните рубильник и нажмите «Зачистить Confluence и сохранить».');
-                } else {
-                    setStatus('Ошибка: ' + (data.error || res.status), true);
-                }
-            } catch (e) {
-                setStatus('Ошибка: ' + e.message, true);
-            } finally {
-                btn.disabled = false;
-            }
-        }
 
         document.addEventListener('DOMContentLoaded', function() {
             setupConfirmSlider();
         });
 
         async function cleanupConfluenceAndSave() {
-            if (!archiveState.archiveId || !archiveState.pageTitle) {
-                setStatus('Сначала загрузите архив', true);
-                return;
-            }
-            const project = getModalProject() || archiveState.project;
+            const project = getModalProject();
             if (!project) {
                 setStatus('Укажите проект', true);
                 return;
             }
-            const url = document.getElementById('modalUrl').value.trim() || archiveState.confluenceUrl;
+            const url = document.getElementById('modalUrl').value.trim();
+            if (!url) {
+                setStatus('Введите URL страницы Confluence', true);
+                return;
+            }
 
             const btn = document.getElementById('cleanupAndSaveBtn');
             btn.disabled = true;
             btn.textContent = 'Выполняю…';
 
             try {
+                // Шаг 1: Скачивание архива с Confluence (если ещё не загружен)
+                if (!archiveState.archiveId || !archiveState.pageTitle) {
+                    setStatus('Скачивание архива с Confluence...');
+                    const r1 = await apiPost('/api/archive/fetch-from-confluence', {
+                        confluenceUrl: url,
+                        project
+                    });
+                    if (!r1.ok) {
+                        setStatus('Ошибка скачивания архива: ' + (r1.data.error || 'неизвестно'), true);
+                        return;
+                    }
+                    archiveState = { ...archiveState, ...r1.data, project };
+                }
+
+                // Шаг 2: Удаление дочерних страниц
                 if (url) {
                     setStatus('Удаление дочерних страниц...');
                     const r2 = await apiPost('/api/archive/delete-children', {
@@ -792,6 +783,8 @@
                         archiveState.childPageNames = r2.data.childPageNames;
                     }
                 }
+                
+                // Шаг 3: Удаление вложений
                 if (url) {
                     setStatus('Удаление вложений...');
                     const r3 = await apiPost('/api/archive/delete-attachments', { confluenceUrl: url });
@@ -799,26 +792,32 @@
                         setStatus('Ошибка: ' + (r3.data.error || 'неизвестно'), true);
                         return;
                     }
+                    
+                    // Шаг 4: Замена контента
                     setStatus('Замена контента...');
+                    const jiraKey = extractJiraKeyFromPageTitle(archiveState.pageTitle);
                     const r4 = await apiPost('/api/archive/replace-content', {
                         confluenceUrl: url,
                         pageTitle: archiveState.pageTitle,
                         archiveId: archiveState.archiveId,
                         project: archiveState.project,
-                        jiraKey: extractJiraKeyFromPageTitle(archiveState.pageTitle) || null
+                        jiraKey: jiraKey || null
                     });
                     if (!r4.ok) {
                         setStatus('Ошибка: ' + (r4.data.error || 'неизвестно'), true);
                         return;
                     }
                 }
+                
+                // Шаг 5: Сохранение в БД
                 setStatus('Сохранение в БД...');
+                const jiraKey = extractJiraKeyFromPageTitle(archiveState.pageTitle);
                 const r5 = await apiPost('/api/archive/save-to-db', {
                     archiveId: archiveState.archiveId,
                     name: archiveState.pageTitle,
                     project,
                     childPageNames: archiveState.childPageNames || [],
-                    jiraKey: extractJiraKeyFromPageTitle(archiveState.pageTitle) || null
+                    jiraKey: jiraKey || null
                 });
                 if (r5.ok) {
                     setStatus('Сохранено в БД. ID: ' + r5.data.id);

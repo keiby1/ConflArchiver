@@ -327,7 +327,7 @@ public class ConfluenceArchiveService {
                 : "[URL приложения]/" + projectName + "/" + archiveId;
 
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
-        String ticket = (jiraKey != null && !jiraKey.isBlank()) ? jiraKey : "TICKET-PLACEHOLDER";
+        String ticket = (jiraKey != null && !jiraKey.isBlank()) ? jiraKey : null;
 
         String newContent = ConstContent.getPlaceholderText(pageTitle, ticket, now, viewUrl);
 

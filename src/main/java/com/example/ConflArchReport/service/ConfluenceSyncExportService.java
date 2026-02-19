@@ -1,5 +1,6 @@
 package com.example.ConflArchReport.service;
 
+import com.example.ConflArchReport.confluence.ConfluenceApiResponse;
 import com.example.ConflArchReport.confluence.ConfluenceUrlParser;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
@@ -20,10 +21,13 @@ public class ConfluenceSyncExportService {
     private static final String SYNC_EXPORT_QUERY = "exportSchemeId=bundled_default&rootPageId=";
 
     private final RestTemplate confluenceBinaryRestTemplate;
+    private final RestTemplate confluenceRestTemplate;
 
     public ConfluenceSyncExportService(
-            @Qualifier("confluenceBinaryRestTemplate") RestTemplate confluenceBinaryRestTemplate) {
+            @Qualifier("confluenceBinaryRestTemplate") RestTemplate confluenceBinaryRestTemplate,
+            @Qualifier("confluenceRestTemplate") RestTemplate confluenceRestTemplate) {
         this.confluenceBinaryRestTemplate = confluenceBinaryRestTemplate;
+        this.confluenceRestTemplate = confluenceRestTemplate;
     }
 
     /**
@@ -57,5 +61,33 @@ public class ConfluenceSyncExportService {
         }
 
         return body;
+    }
+
+    /**
+     * Получает название страницы через Confluence API (getTitle).
+     *
+     * @param confluenceUrl URL страницы Confluence
+     * @return название страницы
+     */
+    public String fetchPageTitle(String confluenceUrl) {
+        ConfluenceUrlParser.ParsedUrl parsed = ConfluenceUrlParser.parse(confluenceUrl);
+        String apiBase = parsed.getApiBaseUrl();
+        String url = apiBase + parsed.pageId();
+        
+        try {
+            ResponseEntity<ConfluenceApiResponse> response = confluenceRestTemplate.exchange(
+                    url,
+                    org.springframework.http.HttpMethod.GET,
+                    null,
+                    ConfluenceApiResponse.class
+            );
+            ConfluenceApiResponse page = response.getBody();
+            if (page == null || page.getTitle() == null || page.getTitle().isBlank()) {
+                throw new IllegalStateException("Не удалось получить название страницы из Confluence API");
+            }
+            return page.getTitle();
+        } catch (Exception e) {
+            throw new IllegalStateException("Ошибка получения названия страницы: " + e.getMessage(), e);
+        }
     }
 }

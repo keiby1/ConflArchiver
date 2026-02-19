@@ -85,11 +85,11 @@ public class ArchiveController {
         }
         try {
             archivedReportService.getOrCreateProject(project);
+            // Получаем название страницы из Confluence API (getTitle) до скачивания архива
+            String pageTitle = confluenceSyncExportService.fetchPageTitle(confluenceUrl);
             byte[] zipBytes = confluenceSyncExportService.fetchZip(confluenceUrl);
             String archiveId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
             zipReportService.saveUploadedZip(project, archiveId, new ByteArrayInputStream(zipBytes));
-            String pageTitle = zipReportService.extractPageTitleFromArchive(project, archiveId)
-                    .orElse("Страница " + confluenceUrl);
             return ResponseEntity.ok(Map.of(
                     "archiveId", archiveId,
                     "pageTitle", pageTitle,
