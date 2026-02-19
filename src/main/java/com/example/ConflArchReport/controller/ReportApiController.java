@@ -49,7 +49,7 @@ public class ReportApiController {
      * Со слешем: index или конкретный путь. path приходит без ведущего слеша (пустая строка для /{project}/{id}/).
      * Регулярка {path:.*} нужна, чтобы path не обрезался после точки (Spring по умолчанию трактует .doc, .zip и т.д. как суффикс формата).
      */
-    @GetMapping("/{project}/{id}/{*path:.*}")
+    @GetMapping("/{project}/{id}/{*path}")
     public ResponseEntity<?> getReportResource(
             @PathVariable String project,
             @PathVariable String id,

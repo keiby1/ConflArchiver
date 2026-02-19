@@ -494,11 +494,9 @@
                 <input type="text" id="modalProjectNew" placeholder="Название нового проекта">
             </div>
             <div class="form-row">
-                <label>Загрузить архив (zip)</label>
-                <div class="upload-zone" id="uploadZone">
-                    <input type="file" id="archiveFileInput" accept=".zip" hidden>
-                    <button type="button" class="upload-btn" onclick="document.getElementById('archiveFileInput').click()">Загрузить архив</button>
-                    <span class="upload-hint">или перетащите zip-файл сюда</span>
+                <label>Скачать архив с Confluence</label>
+                <div class="fetch-zone">
+                    <button type="button" class="upload-btn" id="fetchArchiveBtn" onclick="fetchArchiveFromConfluence()">Скачать архив по ссылке</button>
                     <span class="upload-filename" id="uploadFilename"></span>
                 </div>
             </div>
@@ -587,8 +585,6 @@
             archiveState = {};
             document.getElementById('modalStatus').textContent = '';
             document.getElementById('uploadFilename').textContent = '';
-            document.getElementById('archiveFileInput').value = '';
-            document.getElementById('uploadZone').classList.remove('drag-over');
             resetConfirmSlider();
         }
 
@@ -725,65 +721,43 @@
             return custom || document.getElementById('modalProject').value;
         }
 
-        function setupUploadZone() {
-            const zone = document.getElementById('uploadZone');
-            const input = document.getElementById('archiveFileInput');
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
-                zone.addEventListener(ev, e => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                });
-            });
-            ['dragenter', 'dragover'].forEach(ev => {
-                zone.addEventListener(ev, () => zone.classList.add('drag-over'));
-            });
-            ['dragleave', 'drop'].forEach(ev => {
-                zone.addEventListener(ev, () => zone.classList.remove('drag-over'));
-            });
-            zone.addEventListener('drop', e => {
-                const file = e.dataTransfer?.files?.[0];
-                if (file && file.name.toLowerCase().endsWith('.zip')) {
-                    uploadArchive(file);
-                } else {
-                    setStatus('Выберите файл .zip', true);
-                }
-            });
-            input.addEventListener('change', () => {
-                const file = input.files?.[0];
-                if (file) uploadArchive(file);
-            });
-        }
-
-        async function uploadArchive(file) {
+        /** Первый шаг: по URL страницы Confluence скачивает архив через sync-export и сохраняет на сервере. */
+        async function fetchArchiveFromConfluence() {
+            const url = document.getElementById('modalUrl').value.trim();
             const project = getModalProject();
+            if (!url) {
+                setStatus('Введите URL страницы Confluence', true);
+                return;
+            }
             if (!project) {
                 setStatus('Сначала выберите или введите проект', true);
                 return;
             }
-            setStatus('Загрузка...');
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('project', project);
+            const btn = document.getElementById('fetchArchiveBtn');
+            btn.disabled = true;
+            setStatus('Скачивание архива с Confluence...');
             try {
-                const res = await fetch('/api/archive/upload', {
+                const res = await fetch('/api/archive/fetch-from-confluence', {
                     method: 'POST',
-                    body: formData
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confluenceUrl: url, project })
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
                     archiveState = { ...archiveState, ...data, project };
-                    document.getElementById('uploadFilename').textContent = 'Загружено: ' + file.name;
+                    document.getElementById('uploadFilename').textContent = 'Архив загружен. ID: ' + data.archiveId;
                     setStatus('Готово. ID: ' + data.archiveId + '. При необходимости перетяните рубильник и нажмите «Зачистить Confluence и сохранить».');
                 } else {
                     setStatus('Ошибка: ' + (data.error || res.status), true);
                 }
             } catch (e) {
                 setStatus('Ошибка: ' + e.message, true);
+            } finally {
+                btn.disabled = false;
             }
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            setupUploadZone();
             setupConfirmSlider();
         });
 

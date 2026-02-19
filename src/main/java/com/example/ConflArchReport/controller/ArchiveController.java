@@ -3,11 +3,13 @@ package com.example.ConflArchReport.controller;
 import com.example.ConflArchReport.entity.ArchivedReport;
 import com.example.ConflArchReport.service.ArchivedReportService;
 import com.example.ConflArchReport.service.ConfluenceArchiveService;
+import com.example.ConflArchReport.service.ConfluenceSyncExportService;
 import com.example.ConflArchReport.service.ZipReportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -18,13 +20,16 @@ import java.util.UUID;
 public class ArchiveController {
 
     private final ConfluenceArchiveService confluenceArchiveService;
+    private final ConfluenceSyncExportService confluenceSyncExportService;
     private final ZipReportService zipReportService;
     private final ArchivedReportService archivedReportService;
 
     public ArchiveController(ConfluenceArchiveService confluenceArchiveService,
+                             ConfluenceSyncExportService confluenceSyncExportService,
                              ZipReportService zipReportService,
                              ArchivedReportService archivedReportService) {
         this.confluenceArchiveService = confluenceArchiveService;
+        this.confluenceSyncExportService = confluenceSyncExportService;
         this.zipReportService = zipReportService;
         this.archivedReportService = archivedReportService;
     }
@@ -60,6 +65,43 @@ public class ArchiveController {
             ));
         } catch (IOException e) {
             return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка сохранения архива: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Первый шаг: получить ID страницы из URL Confluence, скачать архив через sync-export,
+     * сохранить на сервере (reports/{project}/{archiveId}.zip) и вернуть archiveId, pageTitle, project.
+     * Дальнейшая цепочка без изменений: удаление дочерних, вложений, замена контента, сохранение в БД.
+     */
+    @PostMapping("/fetch-from-confluence")
+    public ResponseEntity<?> fetchFromConfluence(@RequestBody Map<String, String> request) {
+        String confluenceUrl = request.get("confluenceUrl");
+        String project = request.get("project");
+        if (confluenceUrl == null || confluenceUrl.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Укажите URL страницы Confluence"));
+        }
+        if (project == null || project.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Укажите проект"));
+        }
+        try {
+            archivedReportService.getOrCreateProject(project);
+            byte[] zipBytes = confluenceSyncExportService.fetchZip(confluenceUrl);
+            String archiveId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+            zipReportService.saveUploadedZip(project, archiveId, new ByteArrayInputStream(zipBytes));
+            String pageTitle = zipReportService.extractPageTitleFromArchive(project, archiveId)
+                    .orElse("Страница " + confluenceUrl);
+            return ResponseEntity.ok(Map.of(
+                    "archiveId", archiveId,
+                    "pageTitle", pageTitle,
+                    "project", project,
+                    "confluenceUrl", confluenceUrl
+            ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка загрузки архива: " + e.getMessage()));
         }
     }
 
