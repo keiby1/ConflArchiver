@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -19,15 +20,18 @@ import java.util.UUID;
 public class ArchiveController {
 
     private final ConfluenceArchiveService confluenceArchiveService;
+    private final ConfluenceSyncExportService confluenceSyncExportService;
     private final ZipReportService zipReportService;
     private final ArchivedReportService archivedReportService;
     private final FetchArchiveService fetchArchiveService;
 
     public ArchiveController(ConfluenceArchiveService confluenceArchiveService,
+                             ConfluenceSyncExportService confluenceSyncExportService,
                              ZipReportService zipReportService,
                              ArchivedReportService archivedReportService,
                              FetchArchiveService fetchArchiveService) {
         this.confluenceArchiveService = confluenceArchiveService;
+        this.confluenceSyncExportService = confluenceSyncExportService;
         this.zipReportService = zipReportService;
         this.archivedReportService = archivedReportService;
         this.fetchArchiveService = fetchArchiveService;

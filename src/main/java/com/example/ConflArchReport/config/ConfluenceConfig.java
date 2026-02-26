@@ -37,8 +37,32 @@ public class ConfluenceConfig {
 
     @Bean("confluenceRestTemplate")
     public RestTemplate confluenceRestTemplate() throws Exception {
-        RestTemplate restTemplate;
+        RestTemplate restTemplate = createBaseRestTemplate();
+        restTemplate.getInterceptors().add((request, body, execution) -> {
+            if (confluenceApiToken != null && !confluenceApiToken.isBlank()) {
+                request.getHeaders().set(HttpHeaders.AUTHORIZATION, "Bearer " + confluenceApiToken);
+            }
+            request.getHeaders().set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
+            return execution.execute(request, body);
+        });
+        return restTemplate;
+    }
 
+    /** RestTemplate для запросов, возвращающих бинарные данные (например sync-export zip). */
+    @Bean("confluenceBinaryRestTemplate")
+    public RestTemplate confluenceBinaryRestTemplate() throws Exception {
+        RestTemplate restTemplate = createBaseRestTemplate();
+        restTemplate.getInterceptors().add((request, body, execution) -> {
+            if (confluenceApiToken != null && !confluenceApiToken.isBlank()) {
+                request.getHeaders().set(HttpHeaders.AUTHORIZATION, "Bearer " + confluenceApiToken);
+            }
+            request.getHeaders().set(HttpHeaders.ACCEPT, MediaType.ALL_VALUE);
+            return execution.execute(request, body);
+        });
+        return restTemplate;
+    }
+
+    private RestTemplate createBaseRestTemplate() throws Exception {
         if (keystorePath != null && !keystorePath.isBlank() && keystorePassword != null) {
             KeyStore keyStore = loadKeyStore(keystorePath, keystorePassword.toCharArray());
             SSLContext sslContext = SSLContextBuilder.create()
@@ -53,19 +77,9 @@ public class ConfluenceConfig {
             HttpClient httpClient = HttpClients.custom()
                     .setConnectionManager(connectionManager)
                     .build();
-            restTemplate = new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));
-        } else {
-            restTemplate = new RestTemplate();
+            return new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));
         }
-
-        restTemplate.getInterceptors().add((request, body, execution) -> {
-            if (confluenceApiToken != null && !confluenceApiToken.isBlank()) {
-                request.getHeaders().set(HttpHeaders.AUTHORIZATION, "Bearer " + confluenceApiToken);
-            }
-            request.getHeaders().set(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
-            return execution.execute(request, body);
-        });
-        return restTemplate;
+        return new RestTemplate();
     }
 
     private KeyStore loadKeyStore(String path, char[] password) throws Exception {

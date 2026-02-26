@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/image/zip.png">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <title>Архивы отчётов</title>
     <style>
         :root {
@@ -505,12 +505,30 @@
         }
         setTheme(getTheme());
 
-        /** Извлекает ключ Jira из названия страницы формата "ключДжира | НазваниеСтраницы | датаВремя" */
+        /** Извлекает ключ Jira из названия страницы. Поддерживает форматы:
+         * - "TICKET-123 | Название | дата"
+         * - "TICKET-123 Название"
+         * - "Название TICKET-123"
+         * - Просто "TICKET-123"
+         */
         function extractJiraKeyFromPageTitle(pageTitle) {
             if (!pageTitle || typeof pageTitle !== 'string') return null;
-            const part = pageTitle.split(/\s*\|\s*/)[0].trim();
-            if (!part) return null;
-            if (/^[A-Z0-9]+-\d+$/i.test(part)) return part;
+            
+            // Паттерн для тикета: буквы/цифры-цифры (например PROJ-123, TICKET-456)
+            const ticketPattern = /\b([A-Z0-9]+-\d+)\b/i;
+            
+            // Сначала пробуем формат "TICKET-123 | ..."
+            const parts = pageTitle.split(/\s*\|\s*/);
+            if (parts.length > 0) {
+                const firstPart = parts[0].trim();
+                const match = firstPart.match(ticketPattern);
+                if (match) return match[1].toUpperCase();
+            }
+            
+            // Ищем тикет в любом месте названия
+            const match = pageTitle.match(ticketPattern);
+            if (match) return match[1].toUpperCase();
+            
             return null;
         }
 
@@ -736,6 +754,8 @@
                         archiveState.childPageNames = r2.data.childPageNames;
                     }
                 }
+                
+                // Шаг 3: Удаление вложений
                 if (url) {
                     setStatus('Удаление вложений...');
                     const r3 = await apiPost('/api/archive/delete-attachments', { confluenceUrl: url });
@@ -743,26 +763,32 @@
                         setStatus('Ошибка: ' + (r3.data.error || 'неизвестно'), true);
                         return;
                     }
+                    
+                    // Шаг 4: Замена контента
                     setStatus('Замена контента...');
+                    const jiraKey = extractJiraKeyFromPageTitle(archiveState.pageTitle);
                     const r4 = await apiPost('/api/archive/replace-content', {
                         confluenceUrl: url,
                         pageTitle: archiveState.pageTitle,
                         archiveId: archiveState.archiveId,
                         project: archiveState.project,
-                        jiraKey: extractJiraKeyFromPageTitle(archiveState.pageTitle) || null
+                        jiraKey: jiraKey || null
                     });
                     if (!r4.ok) {
                         setStatus('Ошибка: ' + (r4.data.error || 'неизвестно'), true);
                         return;
                     }
                 }
+                
+                // Шаг 5: Сохранение в БД
                 setStatus('Сохранение в БД...');
+                const jiraKey = extractJiraKeyFromPageTitle(archiveState.pageTitle);
                 const r5 = await apiPost('/api/archive/save-to-db', {
                     archiveId: archiveState.archiveId,
                     name: archiveState.pageTitle,
                     project,
                     childPageNames: archiveState.childPageNames || [],
-                    jiraKey: extractJiraKeyFromPageTitle(archiveState.pageTitle) || null
+                    jiraKey: jiraKey || null
                 });
                 if (r5.ok) {
                     setStatus('Сохранено в БД. ID: ' + r5.data.id);
