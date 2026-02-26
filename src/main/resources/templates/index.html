@@ -283,32 +283,6 @@
             display: none;
         }
         html.theme-light #tooltip-json { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
-        .upload-zone {
-            border: 2px dashed var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            text-align: center;
-            background: var(--bg-card);
-            transition: border-color 0.2s, background 0.2s;
-        }
-        .upload-zone.drag-over {
-            border-color: var(--accent);
-            background: rgba(88, 166, 255, 0.08);
-        }
-        .upload-zone .upload-btn {
-            margin-bottom: 0.5rem;
-        }
-        .upload-zone .upload-hint {
-            display: block;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-        .upload-zone .upload-filename {
-            display: block;
-            margin-top: 0.5rem;
-            font-size: 0.85rem;
-            color: var(--success);
-        }
         .modal-warning {
             background: rgba(210, 170, 0, 0.18);
             border: 1px solid #d4a700;
@@ -496,7 +470,7 @@
             <div class="modal-status" id="modalStatus"></div>
             <div class="modal-warning" id="confluenceWarning">
                 <strong>Будет выполнено:</strong><br>
-                1. Скачивание архива с Confluence<br>
+                1. Выгрузка архива<br>
                 2. Удаление дочерних страниц<br>
                 3. Удаление вложений указанной страницы<br>
                 4. Замена контента указанной страницы<br>
@@ -509,7 +483,7 @@
                 </div>
             </div>
             <div class="modal-buttons">
-                <button type="button" id="cleanupAndSaveBtn" disabled onclick="cleanupConfluenceAndSave()">Зачистить Confluence и сохранить</button>
+                <button type="button" id="cleanupAndSaveBtn" disabled onclick="cleanupConfluenceAndSave()">Выгрузить, Зачистить и сохранить</button>
             </div>
         </div>
     </div>
@@ -732,20 +706,19 @@
             return custom || document.getElementById('modalProject').value;
         }
 
-
         document.addEventListener('DOMContentLoaded', function() {
             setupConfirmSlider();
         });
 
         async function cleanupConfluenceAndSave() {
-            const project = getModalProject();
-            if (!project) {
-                setStatus('Укажите проект', true);
-                return;
-            }
             const url = document.getElementById('modalUrl').value.trim();
+            const project = getModalProject();
             if (!url) {
                 setStatus('Введите URL страницы Confluence', true);
+                return;
+            }
+            if (!project) {
+                setStatus('Укажите проект', true);
                 return;
             }
 
@@ -754,21 +727,19 @@
             btn.textContent = 'Выполняю…';
 
             try {
-                // Шаг 1: Скачивание архива с Confluence (если ещё не загружен)
                 if (!archiveState.archiveId || !archiveState.pageTitle) {
-                    setStatus('Скачивание архива с Confluence...');
-                    const r1 = await apiPost('/api/archive/fetch-from-confluence', {
+                    setStatus('Выгрузка архива...');
+                    const r1 = await apiPost('/api/archive/fetch-and-save', {
                         confluenceUrl: url,
-                        project
+                        project: project
                     });
                     if (!r1.ok) {
-                        setStatus('Ошибка скачивания архива: ' + (r1.data.error || 'неизвестно'), true);
+                        setStatus('Ошибка: ' + (r1.data.error || 'неизвестно'), true);
                         return;
                     }
-                    archiveState = { ...archiveState, ...r1.data, project };
+                    archiveState = { ...archiveState, ...r1.data, project, confluenceUrl: url };
                 }
 
-                // Шаг 2: Удаление дочерних страниц
                 if (url) {
                     setStatus('Удаление дочерних страниц...');
                     const r2 = await apiPost('/api/archive/delete-children', {
@@ -827,7 +798,7 @@
                 }
             } finally {
                 btn.disabled = !confirmSliderActive;
-                btn.textContent = 'Зачистить Confluence и сохранить';
+                btn.textContent = 'Выгрузить, Зачистить и сохранить';
             }
         }
 

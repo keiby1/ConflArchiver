@@ -3,7 +3,7 @@ package com.example.ConflArchReport.controller;
 import com.example.ConflArchReport.entity.ArchivedReport;
 import com.example.ConflArchReport.service.ArchivedReportService;
 import com.example.ConflArchReport.service.ConfluenceArchiveService;
-import com.example.ConflArchReport.service.ConfluenceSyncExportService;
+import com.example.ConflArchReport.service.FetchArchiveService;
 import com.example.ConflArchReport.service.ZipReportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,15 +23,18 @@ public class ArchiveController {
     private final ConfluenceSyncExportService confluenceSyncExportService;
     private final ZipReportService zipReportService;
     private final ArchivedReportService archivedReportService;
+    private final FetchArchiveService fetchArchiveService;
 
     public ArchiveController(ConfluenceArchiveService confluenceArchiveService,
                              ConfluenceSyncExportService confluenceSyncExportService,
                              ZipReportService zipReportService,
-                             ArchivedReportService archivedReportService) {
+                             ArchivedReportService archivedReportService,
+                             FetchArchiveService fetchArchiveService) {
         this.confluenceArchiveService = confluenceArchiveService;
         this.confluenceSyncExportService = confluenceSyncExportService;
         this.zipReportService = zipReportService;
         this.archivedReportService = archivedReportService;
+        this.fetchArchiveService = fetchArchiveService;
     }
 
     /**
@@ -69,39 +72,29 @@ public class ArchiveController {
     }
 
     /**
-     * Первый шаг: получить ID страницы из URL Confluence, скачать архив через sync-export,
-     * сохранить на сервере (reports/{project}/{archiveId}.zip) и вернуть archiveId, pageTitle, project.
-     * Дальнейшая цепочка без изменений: удаление дочерних, вложений, замена контента, сохранение в БД.
+     * Шаг 1: Выгрузка архива через внешний REST API (реализация в FetchArchiveService.fetchZipFromExternalApi).
      */
-    @PostMapping("/fetch-from-confluence")
-    public ResponseEntity<?> fetchFromConfluence(@RequestBody Map<String, String> request) {
+    @PostMapping("/fetch-and-save")
+    public ResponseEntity<?> fetchAndSave(@RequestBody Map<String, String> request) {
         String confluenceUrl = request.get("confluenceUrl");
         String project = request.get("project");
-        if (confluenceUrl == null || confluenceUrl.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Укажите URL страницы Confluence"));
-        }
-        if (project == null || project.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Укажите проект"));
+        if (confluenceUrl == null || confluenceUrl.isBlank() || project == null || project.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Требуются confluenceUrl и project"));
         }
         try {
-            archivedReportService.getOrCreateProject(project);
-            // Получаем название страницы из Confluence API (getTitle) до скачивания архива
-            String pageTitle = confluenceSyncExportService.fetchPageTitle(confluenceUrl);
-            byte[] zipBytes = confluenceSyncExportService.fetchZip(confluenceUrl);
-            String archiveId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-            zipReportService.saveUploadedZip(project, archiveId, new ByteArrayInputStream(zipBytes));
+            FetchArchiveService.FetchResult result = fetchArchiveService.fetchAndSave(confluenceUrl, project);
             return ResponseEntity.ok(Map.of(
-                    "archiveId", archiveId,
-                    "pageTitle", pageTitle,
-                    "project", project,
-                    "confluenceUrl", confluenceUrl
+                    "archiveId", result.archiveId(),
+                    "pageTitle", result.pageTitle(),
+                    "childPageNames", result.childPageNames(),
+                    "childPageIds", result.childPageIds()
             ));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (UnsupportedOperationException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка выгрузки архива: " + e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", "Ошибка загрузки архива: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
 
